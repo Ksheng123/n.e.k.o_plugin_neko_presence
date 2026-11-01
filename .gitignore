@@ -2,12 +2,14 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
 
 # 构建产物（由 tools/build_package.py 生成，不进库）
 dist/
 *.neko-plugin
 
 # 本地数据与探针导出
+store.db
 *.db
 *.db-journal
 *.db-wal
@@ -15,5 +17,9 @@ dist/
 probe_export*
 
 # 编辑器
-.vscode/
+# 注意：官方校验要求 .vscode/settings.json 与 tasks.json 入库，
+# 所以不能整个忽略 .vscode/，只放行这两个。
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
 .idea/

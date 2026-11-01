@@ -1,0 +1,41 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "N.E.K.O: check neko_presence",
+      "type": "shell",
+      "command": "uv run neko-plugin check neko_presence",
+      "options": {
+        "cwd": "${config:nekoPlugin.repoRoot}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "N.E.K.O: sync neko_presence",
+      "type": "shell",
+      "command": "uv run neko-plugin sync neko_presence --clean",
+      "options": {
+        "cwd": "${config:nekoPlugin.repoRoot}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "N.E.K.O: check -r neko_presence",
+      "type": "shell",
+      "command": "uv run neko-plugin check -r neko_presence",
+      "options": {
+        "cwd": "${config:nekoPlugin.repoRoot}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "N.E.K.O: build neko_presence",
+      "type": "shell",
+      "command": "uv run neko-plugin build neko_presence",
+      "options": {
+        "cwd": "${config:nekoPlugin.repoRoot}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
