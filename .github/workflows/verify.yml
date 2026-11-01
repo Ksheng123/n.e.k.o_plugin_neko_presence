@@ -1,13 +1,13 @@
 name: verify
 
-# 市场要的「校验证据」：每次 push 都跑一遍测试 + 出包，证明这个提交是可安装的。
+# 用官方标准校验工作流（市场按它判断这个提交能不能发）。
 #
-# 为什么不用官方的 reusable workflow
-# （Project-N-E-K-O/N.E.K.O/.github/workflows/plugin-market-verify.yml@main）：
-# 那个工作流按「插件位于 N.E.K.O 源码树的 plugin/plugins/<id>/ 下」来找目录，
-# 而本仓库的根目录**就是**插件本身，路径对不上。这里做等价的自校验：
-# 版本一致 → 单测 → 构建 → 验包，四步都不依赖 neko-plugin CLI
-# （宿主冻结版没有那个 CLI，官方 `neko-plugin check` 在本机跑不了）。
+# plugin-directory 留空 = 插件就在仓库根目录。本仓库不是 N.E.K.O 源码树，
+# 整个仓库就是 neko_presence/ 这一层；官方工作流会把它挂到
+# plugin/plugins/<id>/ 下再跑，所以路径不用我们自己搬。
+#
+# 它做的事：ruff → sync 依赖 → CLI `check -r`（含打包）→ 写 market-evidence.json。
+# 注意 CLI 用的是**官方打包逻辑**，不是本仓库 tools/build_package.py。
 on:
   push:
   pull_request:
@@ -18,69 +18,9 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      # 版本号散在四处（plugin.toml / __init__ 文件头 / _VERSION / README 头），
-      # 改版时最容易漏一处，市场按包内版本审，漏了就对不上 tag
-      - name: 校验版本号四处一致
-        run: |
-          python - <<'PY'
-          import pathlib, re, sys, tomllib
-
-          root = pathlib.Path(".")
-          ver = tomllib.loads((root / "plugin.toml").read_text(encoding="utf-8"))["plugin"]["version"]
-          found = {"plugin.toml": ver}
-
-          init = (root / "__init__.py").read_text(encoding="utf-8")
-          m = re.search(r'_VERSION\s*=\s*"([^"]+)"', init)
-          found["__init__._VERSION"] = m.group(1) if m else "(missing)"
-          m = re.match(r'"""她的一天 \(neko_presence\)[^V]*V(\d+\.\d+\.\d+)', init)
-          found["__init__ 文件头"] = m.group(1) if m else "(missing)"
-
-          readme = (root / "README.md").read_text(encoding="utf-8")
-          m = re.search(r'当前版本 v(\d+\.\d+\.\d+)', readme)
-          found["README 头"] = m.group(1) if m else "(missing)"
-
-          bad = {k: v for k, v in found.items() if v != ver}
-          for k, v in found.items():
-              print(f"{k:22} {v}")
-          if bad:
-              sys.exit(f"版本号不一致（基准 {ver}）：{bad}")
-          print(f"OK 版本 {ver}")
-          PY
-
-      # 逐个跑而不是 pytest：这些脚本是自带的 check() 断言，
-      # `pytest tests/` 会报 no tests ran
-      - name: 单元测试
-        run: |
-          set -e
-          for t in tests/test_*.py; do
-            echo "--- $t"
-            python "$t"
-          done
-
-      # --out 必须显式给：脚本默认写到 PLUGIN_ROOT.parent/dist，CI 里会落到工作区外
-      - name: 构建 .neko-plugin
-        run: python tools/build_package.py --out dist/neko_presence.neko-plugin
-
-      - name: 校验包结构
-        run: |
-          set -e
-          unzip -t dist/neko_presence.neko-plugin
-          echo "--- manifest.toml ---"
-          unzip -p dist/neko_presence.neko-plugin manifest.toml
-          echo "--- metadata.toml ---"
-          unzip -p dist/neko_presence.neko-plugin metadata.toml
-
-      - name: 上传包（便于人工核对）
-        uses: actions/upload-artifact@v4
-        with:
-          name: neko_presence-package
-          path: dist/neko_presence.neko-plugin
-          retention-days: 14
+    uses: Project-N-E-K-O/N.E.K.O/.github/workflows/plugin-market-verify.yml@main
+    with:
+      plugin-id: neko_presence
+      plugin-directory: ""
+      neko-repository: Project-N-E-K-O/N.E.K.O
+      neko-ref: main
