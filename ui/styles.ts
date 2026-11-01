@@ -43,14 +43,29 @@ export const PANEL_CSS = `
 .np-day-num2 { width: 76px; flex: 0 0 76px; text-align: right; color: #7b869b; }
 
 .np-block { margin-top: 16px; }
-.np-heat { display: flex; margin-top: 2px; }
+
+/* 热力图：左侧星期栏 18px，每格 13px + 3px 间距 = 16px 步长，
+   顶栏月份标签按列数算宽度，保证与格子左边缘严格对齐。 */
+.np-heat-wrap { margin-top: 6px; }
+.np-heat-head { display: flex; height: 13px; margin-bottom: 4px; }
+.np-heat-gutter { width: 18px; flex: 0 0 18px; }
+.np-heat-mlbl { font-size: 10px; color: #8b95a8; white-space: nowrap;
+  overflow: hidden; line-height: 13px; }
+.np-heat-main { display: flex; }
+.np-heat-dow { width: 18px; flex: 0 0 18px; font-size: 9.5px; color: #a3acbd; }
+.np-heat-dow span { display: block; height: 13px; margin-bottom: 3px;
+  line-height: 13px; }
+.np-heat { display: flex; }
 .np-heat-col { display: flex; flex-direction: column; }
-.np-heat-cell { width: 12px; height: 12px; margin: 0 4px 4px 0; border-radius: 3px;
-  background: #eef1f6; }
+.np-heat-cell { width: 13px; height: 13px; margin: 0 3px 3px 0; border-radius: 3px;
+  background: #eceff5; box-sizing: border-box; }
 .np-heat-void { background: transparent; }
-.np-heat-legend { display: flex; align-items: center; margin-top: 4px;
+.np-heat-nodata { background: #f6f8fb; }
+.np-heat-cell.np-heat-today { outline: 1.5px solid #2f56e0; outline-offset: 1px; }
+.np-heat-cell:hover { box-shadow: 0 0 0 2px rgba(47, 86, 224, 0.22); }
+.np-heat-legend { display: flex; align-items: center; margin-top: 6px;
   font-size: 10.5px; color: #9aa4b6; }
-.np-heat-legend .np-heat-cell { margin: 0 3px 0 0; }
+.np-heat-legend .np-heat-cell { margin: 0 3px 0 0; width: 12px; height: 12px; }
 .np-heat-lbl { margin: 0 5px 0 6px; }
 
 .np-foot { margin-top: 14px; font-size: 10.5px; color: #9aa4b6; line-height: 1.75; }

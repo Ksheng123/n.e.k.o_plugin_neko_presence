@@ -67,6 +67,10 @@ export default function Panel(props: any) {
   const timeline: any[] = Array.isArray(st.timeline) ? st.timeline : []
   const recent: any[] = Array.isArray(st.recent) ? st.recent : []
   const calendar: any[] = Array.isArray(st.calendar) ? st.calendar : []
+  // 热力图布局在渲染前一次算好：列 = 周，顶栏月份跨列合并。
+  const heatCols = buildWeeks(calendar, 12)
+  const heatMonths = buildMonths(heatCols)
+  const todayKey = ymd(new Date())
   const cur = st.current || {}
   const paused = st.paused === true
 
@@ -191,29 +195,56 @@ export default function Panel(props: any) {
       {calendar.length > 0 ? (
         <div className="np-block">
           <Card title="这些天">
-            <div className="np-heat">
-              {buildWeeks(calendar, 12).map((col: any[], ci: number) => (
-                <div className="np-heat-col" key={ci}>
-                  {col.map((d: any, ri: number) =>
-                    d ? (
-                      <div
-                        className="np-heat-cell"
-                        key={ri}
-                        title={`${d.date} · ${
-                          num(d.companion_sec) > 0 ? dur(num(d.companion_sec)) : "没有记录"
-                        }`}
-                        style={{ background: heatColor(num(d.companion_sec)) }}
-                      />
-                    ) : (
-                      <div className="np-heat-cell np-heat-void" key={ri} />
-                    )
-                  )}
+            <div className="np-heat-head">
+              <div className="np-heat-gutter" />
+              {heatMonths.map((m: any, mi: number) => (
+                <div className="np-heat-mlbl" key={mi} style={{ width: m.span * 16 }}>
+                  {m.span >= 2 ? m.label : ""}
                 </div>
               ))}
             </div>
+            <div className="np-heat-main">
+              <div className="np-heat-dow">
+                {["一", "二", "三", "四", "五", "六", "日"].map((w: string, i: number) => (
+                  <span key={i}>{w}</span>
+                ))}
+              </div>
+              <div className="np-heat">
+                {heatCols.map((col: any[], ci: number) => (
+                  <div className="np-heat-col" key={ci}>
+                    {col.map((d: any, ri: number) =>
+                      d ? (
+                        <div
+                          className={
+                            "np-heat-cell" +
+                            (d.date === todayKey ? " np-heat-today" : "") +
+                            (d.no_data ? " np-heat-nodata" : "")
+                          }
+                          key={ri}
+                          title={`${d.date} · ${
+                            d.no_data
+                              ? "那时还没开始记录"
+                              : num(d.companion_sec) > 0
+                              ? dur(num(d.companion_sec))
+                              : "没有记录"
+                          }`}
+                          style={{
+                            background: d.no_data
+                              ? "#f6f8fb"
+                              : heatColor(num(d.companion_sec)),
+                          }}
+                        />
+                      ) : (
+                        <div className="np-heat-cell np-heat-void" key={ri} />
+                      )
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
             <div className="np-heat-legend">
               <span className="np-heat-lbl">没有记录</span>
-              <span className="np-heat-cell" style={{ background: "#eef1f6" }} />
+              <span className="np-heat-cell" style={{ background: "#eceff5" }} />
               <span className="np-heat-lbl">少</span>
               <span className="np-heat-cell" style={{ background: heatColor(1800) }} />
               <span className="np-heat-cell" style={{ background: heatColor(7200) }} />
@@ -363,7 +394,9 @@ function buildWeeks(cal: any[], weeks: number): any[][] {
       continue
     }
     const key = ymd(d)
-    cols[col].push(map[key] || { date: key, companion_sec: 0 })
+    // calendar 里没有这一天 = 那天插件还没开始记录，不是「陪着但 0 分钟」。
+    // 两者在语义上必须分开，视觉上也压淡，否则前期一大片灰会把真数据淹没。
+    cols[col].push(map[key] || { date: key, companion_sec: 0, no_data: true })
   }
   return cols
 }
@@ -375,13 +408,38 @@ function ymd(d: Date): string {
   return `${y}-${m}-${dd}`
 }
 
+// 顶栏月份标签：逐列取该列的归属月份，相邻同月合并成一格，跨度 = 列数。
+// 最后一列可能只有今天一格（其余是未来占位），所以取「该列第一个有值的日期」。
+// 只有当某月跨到 2 列及以上才渲染文字——只占 1 列（16px）装不下「11月」，
+// 硬写会被 overflow 切成「11」，比不显示更难看。
+function buildMonths(cols: any[][]): any[] {
+  const out: any[] = []
+  for (let i = 0; i < cols.length; i++) {
+    let ref: any = null
+    for (const d of cols[i]) {
+      if (d) {
+        ref = d
+        break
+      }
+    }
+    const label = ref ? `${Number(String(ref.date).split("-")[1])}月` : ""
+    if (out.length > 0 && out[out.length - 1].label === label) {
+      out[out.length - 1].span += 1
+    } else {
+      out.push({ label: label, span: 1 })
+    }
+  }
+  return out
+}
+
 // 色阶按「那天陪了多久」分四档。0 秒 = 最浅的灰，和「没有记录」共用一种视觉，
 // 但 tooltip 会写清是哪一种。时间轴上这两种状态是分开的，这里不合并语义。
+// 五档之间刻意拉开明度（225/203/160/120/62），保证小格子上也能一眼分级。
 function heatColor(sec: number): string {
+  if (sec <= 0) return "#eceff5"
   const h = sec / 3600
-  if (sec <= 0) return "#eef1f6"
-  if (h < 1) return "#dfe6fd"
-  if (h < 3) return "#b6c6fa"
-  if (h < 6) return "#8ba1f8"
-  return "#5b7cfa"
+  if (h < 1) return "#c7d7fe"
+  if (h < 3) return "#93b0fd"
+  if (h < 6) return "#5b83f8"
+  return "#2f56e0"
 }
