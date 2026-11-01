@@ -1111,9 +1111,9 @@ class NekoPresencePlugin(NekoPluginBase):
             "查询「她的一天」记录的真实陪伴与安静数据。"
             "当用户问『今天陪了我多久』『我今天安静过几次』『你什么时候见到我』"
             "『我昨天几点走的』时调用。"
-            "返回的 summary 已按面板口径写好，直接用它回答，不要自行换算或猜测。"
-            "口径：companion_sec 才是『陪着你』的时长；covered_sec 只是有采样的时长；"
-            "waiting 是另一本账，三者不能相加。"
+            "返回的 summary 已按面板口径写好，直接念，不要自行换算、猜测或加秒。"
+            "口径：companion 才是「陪着你」的时长；span 是首尾跨度；"
+            "安静次数是另一本账，三者不能相加。"
         ),
         parameters={
             "type": "object",
@@ -1208,24 +1208,29 @@ class NekoPresencePlugin(NekoPluginBase):
             "summary": spoken,
             "date": day,
             "recorded": True,
-            "companion_sec": round(companion, 1),
+            # 只给面板口径的**字符串**，一个秒数都不给。
+            #
+            # 2026-11-01 真机：这里原本返回 companion_sec=13000.0，模型拿去
+            # 自己换算，说成「三个小时三十六分零四十秒」，而面板同屏显示的是
+            # 「3 小时 37 分」—— 秒级精度的存在本身就在诱发偏离，还诱发了
+            # 「从上午十一点点开始记」这种约数。硬约束是「聊天与面板逐字一致」，
+            # 那么模型手里就不该有任何面板上不存在的数字。
             "companion": _fmt_dur(companion),
             "waiting_count": count,
-            "longest_wait_sec": round(longest, 1),
             "longest_wait": _fmt_dur(longest),
-            "span_sec": round(span, 1),
             "span": _fmt_dur(span),
-            "coverage": round(coverage, 3),
             "first_seen_clock": first,
             "last_seen_clock": last,
             "window": f"{first} – {last}" if first and last and last != first else (first or ""),
             "caveat": caveat,
             "paused": self._paused(),
             "guidance": (
-                "回答『陪了我多久』只用 companion_sec；covered_sec 是采样覆盖时长，"
-                "waiting 是另一本账，三者不能相加。"
-                "caveat 非空时必须把『记录从几点开始』一并说出，"
-                "禁止把 companion_sec 说成『今天只陪了这么久』——"
+                "回答『陪了我多久』只念 companion 字段，不要碰任何秒数，"
+                "也不要自己拆成时分秒——面板上不存在「零四十秒」这种精度。"
+                "时间点照抄 HH:MM，别改写成「十一点」「十点点」这类约数。"
+                "waiting_count 是次数、longest_wait 是最长一次，都不能和 companion 相加。"
+                "caveat 非空时必须把「记录从几点开始」一并说出，"
+                "禁止把 companion 说成「今天只陪了这么久」——"
                 "窗口之前是没在记录，不是她不在。"
             ),
         }
