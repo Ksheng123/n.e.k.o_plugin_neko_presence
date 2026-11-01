@@ -284,7 +284,7 @@ export default function Panel(props: any) {
               <span className="np-heat-lbl">没有记录</span>
               <span
                 className="np-heat-cell"
-                style={{ background: "#f6f8fb", boxShadow: "inset 0 0 0 1px #dde3ee" }}
+                style={{ background: "#eef1f6", boxShadow: "inset 0 0 0 1px #d9e0ec" }}
               />
               <span className="np-heat-lbl">少</span>
               <span className="np-heat-cell" style={{ background: heatColor(1800) }} />
