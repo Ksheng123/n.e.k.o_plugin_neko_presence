@@ -8,6 +8,7 @@ description = """她会记得你什么时候来，也会记得你什么时候走
 她不提醒你睡觉，也不劝你休息——她只是陪着，记得，等你回来。
 
 不读屏幕内容，不读窗口标题，不读你敲下的字。她看见的只有你在不在。
+她只向记忆借一个日期，看看你们是从哪天开始的——里面的字，一句没看。
 装好以后什么都不用做，她会自己开始记。
 
 她现在只做一件事：记住你在不在。以后她会记得更多。"""
@@ -17,7 +18,7 @@ keywords = [
     "跨端", "适配", "companion", "presence", "schedule", "time", "quiet",
     "record", "cross-platform", "記録", "기록", "время", "tiempo",
 ]
-version = "0.6.0"
+version = "0.7.0"
 id = "neko_presence"
 type = "plugin"
 entry = "plugin.plugins.neko_presence:NekoPresencePlugin"

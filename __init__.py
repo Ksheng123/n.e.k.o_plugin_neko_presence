@@ -1,4 +1,4 @@
-"""她的一天 (neko_presence) —— V0.6.0：在场判定 + 跨端适配 + 按月翻页年历
+"""她的一天 (neko_presence) —— V0.7.0：在场判定 + 跨端适配 + 按月翻页年历 + 初识日探测
 
 同时跑两条链路：
 
@@ -11,6 +11,7 @@
     core/signals.py  取信号（键鼠空闲 / 锁屏全屏 / 前台进程）
     core/judge.py    单点判定（纯函数，六态）
     core/state.py    段管理与日聚合（陪伴累加、等待取峰值）
+    core/hostmem.py  向宿主记忆借一个日期（只读时间戳，定年历左边界）
 
 采样字段（探针 chunk）
 ----------------------
@@ -29,6 +30,7 @@
     current_v1                       当前段（**必须落盘**，peak_w 是等待的唯一记录）
     daily_v1                         按天聚合，保留 retention_days
     marks_v1                         里程碑
+    since_v1                         初识日（向宿主记忆借的那一个日期，只存日期不存内容）
     settings                         用户覆盖层（含 paused 暂停开关）
 """
 
@@ -54,6 +56,9 @@ from plugin.sdk.plugin import (
 )
 
 from .core.adapters import build_adapter
+from .core.hostmem import date_of as _date_of
+from .core.hostmem import months_ago
+from .core.hostmem import probe_since
 from .core.judge import Config as JudgeConfig
 from .core.judge import Sample
 from .core.state import DayStat, Segment, apply_segment, roll_segment, step
@@ -70,15 +75,16 @@ _STORE_SEG_INDEX = "seg_index"
 _SEG_PREFIX = "seg:"
 
 #: 与 plugin.toml 的 version 保持一致（启动日志里打出来，方便确认装载的是哪一版）
-_VERSION = "0.6.0"
+_VERSION = "0.7.0"
 
-#: 初识日 —— 年历左翻的边界，不是本插件的第一条记录。
-#: 来源：宿主记忆库 memory/YUI/persona.json → __meta__.facts[0].migrated_at
-#:       = 2026-06-19T20:46:31，与宿主首次安装时各资源目录（live2d / character_cards）
-#:       的创建时间一致；memory/YUI/events.ndjson 最早事件也在 2026-06-19T21:28。
-#: 注意：forever_companion 的 first_seen（2026-10-29）是它自己的初装时间，不是初识。
-#: settings.since_date 可覆盖；若实际记录早于它，取更早的那个。
-_SINCE_DEFAULT = "2026-06-19"
+#: 年历左翻的边界（初识日）探测结果。见 :meth:`_resolve_since` 与 core/hostmem.py。
+#: 注意：**不再硬编码日期**。写死一个日期意味着每个用户都会看到别人的纪念日。
+#: settings.since_date 仍可覆盖，且用户设定优先于探测结果。
+_STORE_SINCE = "since_v1"
+
+#: 探测结果最多往回追多少个月。老用户记忆可能横跨数年，
+#: 界面按整月翻页，不设上限就是几百页的空月历。
+_SINCE_FLOOR_MONTHS = 36
 
 # 采样写入失败的提示节流（秒）：避免存储坏掉时每拍一条日志
 _ERR_LOG_GAP_SEC = 300.0
@@ -159,6 +165,8 @@ class NekoPresencePlugin(NekoPluginBase):
         self._daily: dict[str, DayStat] = {}
         self._marks: dict = {}
         self._settings: dict = {}
+        #: 初识日（年历左翻下界）。启动时由 _resolve_since 定下，空串表示还没算
+        self._since = ""
         #: 分段时间轴：{"YYYY-MM-DD": [{"s":状态,"t":起点,"d":时长,"p":峰值}, ...]}
         self._segments: dict[str, list] = {}
         self._seg_index: list[str] = []
@@ -191,6 +199,7 @@ class NekoPresencePlugin(NekoPluginBase):
         await self._load_settings()
         await self._load_index()
         await self._load_daily()
+        await self._resolve_since()
         await self._load_marks()
         await self._load_segments()
         deduped = self._dedupe_segments()
@@ -721,6 +730,58 @@ class NekoPresencePlugin(NekoPluginBase):
         if isinstance(res, Err):
             self.logger.warning("persist settings failed: {}", res.error)
 
+    # ==========================================================
+    # 初识日
+    # ==========================================================
+
+    async def _resolve_since(self) -> None:
+        """定下年历左翻的下界：你和她的第一天。
+
+        证据优先级（细节见 ``core/hostmem.py``）：
+
+            宿主记忆里最早的对话  >  记忆迁移种子  >  宿主初始化日
+            >  本插件第一条记录  >  今天
+
+        有两条设计约束：
+
+        1. **只读一次**，结果落 store。记忆库有五千多行，5 秒轮询里扫库是浪费；
+           而且宿主正写着的时候会 ``database is locked``，读失败不该影响采样。
+        2. **边界只往前认，不往回跳**。历史上认定过 6 月，就不该因为今天读不到
+           记忆（用户清了记忆、换了机器、库被锁）而变成 10 月 —— 那是抹掉历史。
+        3. 探测到现在约 3ms，所以放在 startup 里同步做，不值得开线程。
+        """
+        cached = ""
+        res = await self.store.get(_STORE_SINCE)
+        if isinstance(res, Ok) and isinstance(res.value, str):
+            cached = _date_of(res.value) or ""
+
+        probed, evidence = probe_since()
+        own = min(self._daily) if self._daily else ""
+
+        marks = [d for d in (probed, cached, own) if d]
+        # 都没证据就老实从今天开始数；不拿一个写死的日期假装「我们认识很久了」
+        since = min(marks) if marks else datetime.now().strftime("%Y-%m-%d")
+        # 回追上限：老用户记忆可能横跨数年，整月翻页会变成几百页空月历
+        since = max(since, months_ago(datetime.now(), _SINCE_FLOOR_MONTHS))
+
+        self._since = since
+        if since != cached:
+            res = await self.store.set(_STORE_SINCE, since)
+            if isinstance(res, Err):
+                self.logger.warning("persist since failed: {}", res.error)
+
+        self.logger.info(
+            "since resolved: {} (src={} talk={} persona={} host={} cached={} own={} char={})",
+            since,
+            evidence.get("src") or "none",
+            evidence.get("talk") or "-",
+            evidence.get("persona") or "-",
+            evidence.get("host") or "-",
+            cached or "-",
+            own or "-",
+            evidence.get("char") or "-",
+        )
+
     async def _load_index(self) -> None:
         res = await self.store.get(_INDEX_KEY)
         if isinstance(res, Ok) and isinstance(res.value, list):
@@ -943,11 +1004,16 @@ class NekoPresencePlugin(NekoPluginBase):
                 }
             )
 
-        # 年历左翻的下界：初识日（见 _SINCE_DEFAULT），而不是本插件第一条记录。
-        # 早于记录期的那几个月会显示成空月历 —— 那是「她还没开始数」，不是「没陪过」。
-        since = str(self._settings.get("since_date") or _SINCE_DEFAULT)
-        if day_keys and day_keys[0] < since:
-            since = day_keys[0]
+        # 年历左翻的下界：初识日（启动时探测，见 _resolve_since），而不是本插件
+        # 第一条记录。早于记录期的那几个月显示成空月历 —— 那是「她还没开始数」，
+        # 不是「没陪过」。用户显式设了 since_date 就以他的为准，不再拿记录去压低它。
+        override = _date_of(self._settings.get("since_date"))
+        if override:
+            since = override
+        else:
+            since = self._since or today_key
+            if day_keys and day_keys[0] < since:
+                since = day_keys[0]
 
         return {
             "version": _VERSION,
