@@ -446,11 +446,18 @@ neko_presence v0.7.0 started: probe=True interval=30s interact=120s paused=False
 ```bash
 python -c "from core.adapters import build_adapter; print(build_adapter().source)"
 python tests/test_judge.py      # 28 项：六态判定 + unknown 降级 + 语义屏幕态
-python tests/test_state.py      # 61 项：区间管理 / 日聚合 / 离开事件合并 / 切段 / 断档
+python tests/test_state.py      # 70 项：区间管理 / 日聚合 / 离开事件合并 / 切段 / 断档
 python tests/test_adapters.py   # 24 项：平台归一 / 隐私门控 / 降级路径
+python tests/test_hostmem.py    # 34 项：初识日探测的证据优先级与失败降级
 python tools/check_day.py <store.db>       # 日检
 python tools/replay.py <store.db>          # 用历史采样重放状态机（只读）
 ```
+
+`pytest tests/` 会报 `no tests ran` —— 这些脚本用的是自带的 `check()` 断言，
+必须逐个 `python tests/test_xxx.py` 跑。
+
+推送到 GitHub 后 `.github/workflows/verify.yml` 会自动跑这四套测试 + 出包 + 验包；
+打 `v*` 标签则由 `release.yml` 出 Release 资产，两者都会先校验版本号四处一致。
 
 分层（依赖方向从上到下，业务层不 import 任何 OS API）：
 
