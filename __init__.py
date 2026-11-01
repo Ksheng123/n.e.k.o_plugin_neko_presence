@@ -1111,6 +1111,8 @@ class NekoPresencePlugin(NekoPluginBase):
             "查询「她的一天」记录的真实陪伴与安静数据。"
             "当用户问『今天陪了我多久』『我今天安静过几次』『你什么时候见到我』"
             "『我昨天几点走的』时调用。"
+            "用户重复问同一个问题也必须重新调用一次：这个数字每分钟都在长，"
+            "上一轮回答里的数字已经不对了，不要复用。"
             "返回的 summary 已按面板口径写好，直接念，不要自行换算、猜测或加秒。"
             "口径：companion 才是「陪着你」的时长；span 是首尾跨度；"
             "安静次数是另一本账，三者不能相加。"
@@ -1222,6 +1224,9 @@ class NekoPresencePlugin(NekoPluginBase):
             "first_seen_clock": first,
             "last_seen_clock": last,
             "window": f"{first} – {last}" if first and last and last != first else (first or ""),
+            # 取数时刻。没有它，模型复读上一轮的数字时用户无从察觉
+            # （2026-11-01 真机：连问两次，第一次报的是 6 分钟前的 3 小时 36 分）
+            "as_of": self._clock(time.time()),
             "caveat": caveat,
             "paused": self._paused(),
             "guidance": (
@@ -1232,6 +1237,8 @@ class NekoPresencePlugin(NekoPluginBase):
                 "caveat 非空时必须把「记录从几点开始」一并说出，"
                 "禁止把 companion 说成「今天只陪了这么久」——"
                 "窗口之前是没在记录，不是她不在。"
+                "as_of 是这次取数的时刻；用户追问「现在呢」时必须重新调用，"
+                "不要拿上一轮的 as_of 和数字应付。"
             ),
         }
 
