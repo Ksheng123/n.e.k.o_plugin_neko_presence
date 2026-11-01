@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 构建产物（由 tools/build_package.py 生成，不进库）
+dist/
+*.neko-plugin
+
+# 本地数据与探针导出
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+probe_export*
+
+# 编辑器
+.vscode/
+.idea/

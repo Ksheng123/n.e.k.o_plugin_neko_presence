@@ -1,0 +1,104 @@
+[plugin]
+name = "她的一天"
+description = """她会记得你什么时候来，也会记得你什么时候走。
+你安静了多久，她不说破，只在心里数着。
+
+一页 24 小时的时间轴，把今天一起待过的时刻轻轻摊开；
+「陪了你多久」和「你安静过几次」分两行说，像两本只有她才知道的小账。
+她不提醒你睡觉，也不劝你休息——她只是陪着，记得，等你回来。
+
+不读屏幕内容，不读窗口标题，不读你敲下的字。她看见的只有你在不在。
+装好以后什么都不用做，她会自己开始记。
+
+她现在只做一件事：记住你在不在。以后她会记得更多。"""
+short_description = "She remembers when you came, when you left, and how long the quiet lasted."
+keywords = [
+    "陪伴", "在场", "作息", "时间", "等待", "安静", "记录", "日子",
+    "跨端", "适配", "companion", "presence", "schedule", "time", "quiet",
+    "record", "cross-platform", "記録", "기록", "время", "tiempo",
+]
+version = "0.4.0"
+id = "neko_presence"
+type = "plugin"
+entry = "plugin.plugins.neko_presence:NekoPresencePlugin"
+
+# 作者 GitHub ID
+[plugin.author]
+name = "Ksheng123"
+
+[plugin.sdk]
+recommended = ">=0.1.0,<0.2.0"
+supported = ">=0.1.0,<0.3.0"
+
+# 托管面板（hosted-tsx）。state 走 @ui.context(id="dashboard")，
+# 面板一页拿全，不做多次 action 往返
+[plugin.ui]
+enabled = true
+
+[[plugin.ui.panel]]
+id = "main"
+title = "她的一天"
+entry = "ui/panel.tsx"
+context = "dashboard"
+permissions = [
+    "state:read",
+    "config:read",
+    "action:call",
+]
+
+[plugin_runtime]
+# 随宿主自动启动：需要尽量长的连续采样与状态累计，
+# 手动启动会漏掉用户没打开面板的那些时段
+enabled = true
+auto_start = true
+
+[plugin.store]
+enabled = true
+
+[probe]
+# 探针总开关。关掉后不再采样，已有数据保留、仍可导出
+enabled = true
+# 采样间隔（秒）。平台 timer 每 10 秒触发一次，这里做二次节流。
+# 30 秒足够看清 idle 的爬升曲线；想更细就调小，但数据量成倍增长
+interval_sec = 30
+# 攒满多少条写一块到存储。20 条 × 30 秒 = 10 分钟一块。
+# 为什么不是 60：角色自主切形态/切换角色会让宿主重启插件服务，
+# 未落盘的缓冲会随进程一起消失。块越大，每次重启丢得越多
+flush_every = 20
+# 索引上限（块数），超出后删除最旧的块。400 块 × 10 分钟 ≈ 66 小时
+max_chunks = 400
+
+[presence]
+# 状态机总开关：关掉后不再判定在场状态，但探针原始采样不受影响
+enabled = true
+# 暂停记录（本插件自己的隐私开关）：true = 一条采样都不做，连键鼠空闲也不读。
+# 为什么需要它：宿主的 privacy_state 在本机恒为 unavailable（宿主拿不到系统信号），
+# 等于没有隐私保护，所以这个开关是唯一能真正叫停记录的办法
+paused = false
+# 互动阈值（秒）：键鼠空闲小于此值 = 你在操作。
+# 为什么是 120 而不是 60：`short_break` **不算陪伴**，阈值定太紧会把
+# 「读长文 / 盯着屏幕思考 / 接个电话」这些"人在但不碰键鼠"的时段踢出陪伴。
+# 120 秒能覆盖大多数专注场景，又远小于 T=900（差 7.5 倍），语义清楚：
+# 2 分钟内没动 = 还在看；15 分钟没动 = 真的走了。
+interactive_sec = 120
+# 静默离开阈值 T（秒）：空闲超过此值才算一段值得记录的「安静」。
+# 为什么是 900：时长准确性与此无关（判定时直接取当时的空闲秒数，天然回溯），
+# 这个值只决定「多长的安静才值得被承认」。900 秒让误报趋近零，
+# 也让「安静」这个数字有分量（一天 2~3 次，而不是碎成 20 多次）
+silent_leave_sec = 900
+# 全屏长尾（小时）：全屏且连续零输入超过此值 → 认定人走了、画面还挂着。
+# 前 N 小时仍算「她陪着你」，因为看片时人确实在屏幕前
+fullscreen_tail_hours = 3
+# 日聚合保留天数（超期自动清理最旧）
+retention_days = 730
+# 分段时间轴保留天数。分段是几 KB/天（聚合只有几百字节），
+# 90 天足够画面板上的月历与趋势，更早的日子只留聚合数字
+segments_retention_days = 90
+# 同一个状态最长累计多少秒就提前结算一次（0 = 关闭这条兜底）。
+# 为什么需要：日聚合只在「段结算」时更新，用户连续几小时不切换状态
+# （一直操作、一直没离开），段就永远不结束，daily_v1 会一直停在旧值。
+# 600 秒 = 20 条采样，最坏只滞后 10 分钟；一天最多切 144 段，开销可忽略。
+# 面板看出来的分段时间轴不会变碎：相邻同类段两段首尾重合，前端会并成一块
+roll_segment_sec = 600
+# 时区："auto" 跟随系统本地，或 IANA 名称如 Asia/Shanghai
+timezone = "auto"

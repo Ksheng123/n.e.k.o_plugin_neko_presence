@@ -1,0 +1,59 @@
+name: release
+
+# 市场要求「标准 GitHub Actions 发布证据」：打 tag → 出包 → 传 Release 资产。
+# 包名固定 <plugin id>.neko-plugin；市场按包内 metadata.toml 的 payload hash 校验。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 版本号不一致时直接失败：包版本与 Release 标签对不上，市场会拒
+      - name: 校验 tag 与 plugin.toml 版本一致
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os, pathlib, sys, tomllib
+          version = tomllib.loads(pathlib.Path("plugin.toml").read_text(encoding="utf-8"))["plugin"]["version"]
+          tag = os.environ["TAG_NAME"].lstrip("v")
+          print(f"tag={tag}  plugin.toml={version}")
+          if tag != version:
+              sys.exit(f"tag 与 plugin.toml 版本不一致：{tag} != {version}")
+          PY
+
+      # 脚本默认输出到 PLUGIN_ROOT.parent/dist，CI 里会跑到工作区外，必须显式指定
+      - name: 构建 .neko-plugin
+        run: python tools/build_package.py --out dist/neko_presence.neko-plugin
+
+      - name: 自检包结构
+        run: |
+          unzip -l dist/neko_presence.neko-plugin
+          echo "--- metadata.toml ---"
+          unzip -p dist/neko_presence.neko-plugin metadata.toml
+          cd dist && sha256sum neko_presence.neko-plugin | tee neko_presence.neko-plugin.sha256
+
+      - name: 上传 Release 资产
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/neko_presence.neko-plugin \
+            dist/neko_presence.neko-plugin.sha256 \
+            --title "她的一天 $GITHUB_REF_NAME" \
+            --generate-notes
