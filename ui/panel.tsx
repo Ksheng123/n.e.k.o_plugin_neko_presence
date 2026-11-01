@@ -67,10 +67,25 @@ export default function Panel(props: any) {
   const timeline: any[] = Array.isArray(st.timeline) ? st.timeline : []
   const recent: any[] = Array.isArray(st.recent) ? st.recent : []
   const calendar: any[] = Array.isArray(st.calendar) ? st.calendar : []
-  // 热力图布局在渲染前一次算好：列 = 周，顶栏月份跨列合并。
-  const heatCols = buildWeeks(calendar, 12)
-  const heatMonths = buildMonths(heatCols)
-  const todayKey = ymd(new Date())
+  // 年历热力图：一月一块月历，每块 7 列（周一..周日）× 最多 6 行。
+  // 布局在渲染前一次算好，不用 IIFE —— 宿主的 hosted-tsx 编译器未必支持。
+  const now = new Date()
+  const todayKey = ymd(now)
+  const yearGrid = buildYear(calendar, now)
+  const yearLabel = now.getFullYear() + " 年"
+  // 年度总览：只数「有记录且陪过」的天，和面板其它地方一样不与覆盖率混算。
+  let yearDays = 0
+  let yearTotal = 0
+  for (const mo of yearGrid) {
+    for (const row of mo.rows) {
+      for (const c of row) {
+        if (c && c.no_data !== true && c.sec > 0) {
+          yearDays += 1
+          yearTotal += c.sec
+        }
+      }
+    }
+  }
   const cur = st.current || {}
   const paused = st.paused === true
 
@@ -192,59 +207,65 @@ export default function Panel(props: any) {
         </div>
       ) : null}
 
-      {calendar.length > 0 ? (
+      {yearGrid.length > 0 ? (
         <div className="np-block">
-          <Card title="这些天">
-            <div className="np-heat-head">
-              <div className="np-heat-gutter" />
-              {heatMonths.map((m: any, mi: number) => (
-                <div className="np-heat-mlbl" key={mi} style={{ width: m.span * 16 }}>
-                  {m.span >= 2 ? m.label : ""}
-                </div>
-              ))}
-            </div>
-            <div className="np-heat-main">
-              <div className="np-heat-dow">
-                {["一", "二", "三", "四", "五", "六", "日"].map((w: string, i: number) => (
-                  <span key={i}>{w}</span>
-                ))}
+          <Card title={yearLabel}>
+            {yearDays > 0 ? (
+              <div className="np-cal-sub">
+                今年有 {yearDays} 天记下了你的在场，累计 {dur(yearTotal)}
               </div>
-              <div className="np-heat">
-                {heatCols.map((col: any[], ci: number) => (
-                  <div className="np-heat-col" key={ci}>
-                    {col.map((d: any, ri: number) =>
-                      d ? (
-                        <div
-                          className={
-                            "np-heat-cell" +
-                            (d.date === todayKey ? " np-heat-today" : "") +
-                            (d.no_data ? " np-heat-nodata" : "")
-                          }
-                          key={ri}
-                          title={`${d.date} · ${
-                            d.no_data
-                              ? "那时还没开始记录"
-                              : num(d.companion_sec) > 0
-                              ? dur(num(d.companion_sec))
-                              : "没有记录"
-                          }`}
-                          style={{
-                            background: d.no_data
-                              ? "#f6f8fb"
-                              : heatColor(num(d.companion_sec)),
-                          }}
-                        />
-                      ) : (
-                        <div className="np-heat-cell np-heat-void" key={ri} />
+            ) : null}
+            <div className="np-cal">
+              {yearGrid.map((mo: any) => (
+                <div className="np-cal-month" key={mo.month}>
+                  <div className="np-cal-title">{mo.month} 月</div>
+                  <div className="np-cal-row np-cal-dow">
+                    {["一", "二", "三", "四", "五", "六", "日"].map(
+                      (w: string, wi: number) => (
+                        <span key={wi}>{w}</span>
                       )
                     )}
                   </div>
-                ))}
-              </div>
+                  {mo.rows.map((row: any[], ri: number) => (
+                    <div className="np-cal-row" key={ri}>
+                      {row.map((d: any, ci: number) =>
+                        d ? (
+                          <div
+                            className={
+                              "np-cal-cell" +
+                              (d.date === todayKey ? " np-cal-today" : "") +
+                              (d.no_data ? " np-cal-nodata" : "")
+                            }
+                            key={ci}
+                            title={`${d.date} · ${
+                              d.no_data
+                                ? "那时还没开始记录"
+                                : d.sec > 0
+                                ? dur(d.sec)
+                                : "没有记录"
+                            }`}
+                            style={{
+                              background: d.no_data ? "#f6f8fb" : heatColor(d.sec),
+                              color: d.no_data ? "#bfc7d5" : heatText(d.sec),
+                            }}
+                          >
+                            {d.day}
+                          </div>
+                        ) : (
+                          <div className="np-cal-cell np-cal-void" key={ci} />
+                        )
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
             </div>
             <div className="np-heat-legend">
               <span className="np-heat-lbl">没有记录</span>
-              <span className="np-heat-cell" style={{ background: "#eceff5" }} />
+              <span
+                className="np-heat-cell"
+                style={{ background: "#f6f8fb", boxShadow: "inset 0 0 0 1px #dde3ee" }}
+              />
               <span className="np-heat-lbl">少</span>
               <span className="np-heat-cell" style={{ background: heatColor(1800) }} />
               <span className="np-heat-cell" style={{ background: heatColor(7200) }} />
@@ -252,7 +273,7 @@ export default function Panel(props: any) {
               <span className="np-heat-cell" style={{ background: heatColor(25200) }} />
               <span className="np-heat-lbl">多</span>
             </div>
-            <div className="np-note">每一格是一天，颜色越深，她陪你越久。</div>
+            <div className="np-note">每一格是一天，数字是日期；颜色越深，她陪你越久。</div>
           </Card>
         </div>
       ) : null}
@@ -366,70 +387,63 @@ function coverageNote(span: number, coverage: number, wait: number, segs: number
   return parts.join(" · ")
 }
 
-// 月历热力图：把 84 天的日聚合铺成「列 = 周、行 = 周一..周日」的网格。
-// 最后一列包含今天；未来日期给 null（渲染成透明占位，不画成「没有记录」）。
+// 年历热力图：一个月一块月历，列 = 周一..周日，行 = 周。
+// 每块返回 rows（7 个一组），渲染时按行铺 —— 不用 flex-wrap，
+// 因为 7 格 × 18px 正好贴住容器宽度，浮点误差会让第 7 格掉到下一行。
+// 未来日期给 null（透明占位），和「还没开始记录」严格分开。
 // 注意 hosted-tsx 不支持 SVG，这里全靠 div + CSS，别改回 <svg>。
-function buildWeeks(cal: any[], weeks: number): any[][] {
+function buildYear(cal: any[], now: Date): any[] {
   const map: Record<string, any> = {}
-  for (const row of cal) map[String(row.date)] = row
+  for (const row of cal) map[String(row.d)] = row
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const dowMon = (today.getDay() + 6) % 7 // 0 = 周一
-  const end = new Date(today)
-  end.setDate(end.getDate() + (6 - dowMon)) // 本周的周日
+  const year = now.getFullYear()
+  const today = new Date(year, now.getMonth(), now.getDate())
+  const out: any[] = []
 
-  const total = weeks * 7
-  const start = new Date(end)
-  start.setDate(end.getDate() - (total - 1))
+  for (let m = 0; m < 12; m++) {
+    if (m > now.getMonth()) break // 今年还没到的月份不画
+    const first = new Date(year, m, 1)
+    const days = new Date(year, m + 1, 0).getDate() // 当月天数
+    const lead = (first.getDay() + 6) % 7 // 周一开头，前面空几格
 
-  const cols: any[][] = []
-  for (let i = 0; i < total; i++) {
-    const d = new Date(start)
-    d.setDate(start.getDate() + i)
-    const col = Math.floor(i / 7)
-    if (!cols[col]) cols[col] = []
-    if (d > today) {
-      cols[col].push(null)
-      continue
+    const cells: any[] = []
+    for (let i = 0; i < lead; i++) cells.push(null)
+    for (let d = 1; d <= days; d++) {
+      const key = year + "-" + pad2(m + 1) + "-" + pad2(d)
+      if (new Date(year, m, d).getTime() > today.getTime()) {
+        cells.push(null)
+        continue
+      }
+      const rec = map[key]
+      // calendar 里没有这一天 = 那天插件还没开始记录，不是「陪着但 0 分钟」。
+      // 两者语义不同，视觉上也压淡，否则前期一大片灰会把真数据淹没。
+      cells.push(
+        rec
+          ? { date: key, day: d, sec: num(rec.s), no_data: false }
+          : { date: key, day: d, sec: 0, no_data: true }
+      )
     }
-    const key = ymd(d)
-    // calendar 里没有这一天 = 那天插件还没开始记录，不是「陪着但 0 分钟」。
-    // 两者在语义上必须分开，视觉上也压淡，否则前期一大片灰会把真数据淹没。
-    cols[col].push(map[key] || { date: key, companion_sec: 0, no_data: true })
+    while (cells.length % 7 !== 0) cells.push(null) // 补齐整周
+
+    const rows: any[][] = []
+    for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7))
+    out.push({ month: m + 1, rows: rows })
   }
-  return cols
+  return out
+}
+
+function pad2(n: number): string {
+  return n < 10 ? "0" + n : String(n)
 }
 
 function ymd(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const dd = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${dd}`
+  return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate())
 }
 
-// 顶栏月份标签：逐列取该列的归属月份，相邻同月合并成一格，跨度 = 列数。
-// 最后一列可能只有今天一格（其余是未来占位），所以取「该列第一个有值的日期」。
-// 只有当某月跨到 2 列及以上才渲染文字——只占 1 列（16px）装不下「11月」，
-// 硬写会被 overflow 切成「11」，比不显示更难看。
-function buildMonths(cols: any[][]): any[] {
-  const out: any[] = []
-  for (let i = 0; i < cols.length; i++) {
-    let ref: any = null
-    for (const d of cols[i]) {
-      if (d) {
-        ref = d
-        break
-      }
-    }
-    const label = ref ? `${Number(String(ref.date).split("-")[1])}月` : ""
-    if (out.length > 0 && out[out.length - 1].label === label) {
-      out[out.length - 1].span += 1
-    } else {
-      out.push({ label: label, span: 1 })
-    }
-  }
-  return out
+// 格子里的日期数字：浅色底用深灰蓝，深色底必须转白，否则看不见。
+function heatText(sec: number): string {
+  if (sec <= 0) return "#a9b2c4"
+  return sec / 3600 < 3 ? "#3b4a63" : "#ffffff"
 }
 
 // 色阶按「那天陪了多久」分四档。0 秒 = 最浅的灰，和「没有记录」共用一种视觉，

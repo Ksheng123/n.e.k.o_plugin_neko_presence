@@ -1,4 +1,4 @@
-"""她的一天 (neko_presence) —— V0.4.0：在场判定 + 跨端适配 + 月历热力图
+"""她的一天 (neko_presence) —— V0.5.0：在场判定 + 跨端适配 + 年历热力图
 
 同时跑两条链路：
 
@@ -70,7 +70,7 @@ _STORE_SEG_INDEX = "seg_index"
 _SEG_PREFIX = "seg:"
 
 #: 与 plugin.toml 的 version 保持一致（启动日志里打出来，方便确认装载的是哪一版）
-_VERSION = "0.4.0"
+_VERSION = "0.5.0"
 
 # 采样写入失败的提示节流（秒）：避免存储坏掉时每拍一条日志
 _ERR_LOG_GAP_SEC = 300.0
@@ -917,17 +917,21 @@ class NekoPresencePlugin(NekoPluginBase):
                 }
             )
 
-        # 月历热力图：最近 12 周（84 天）。口径与 recent 完全一致 —— 今天用 view 试算，
-        # 历史日用已结算的日聚合。只下发 date / companion_sec / coverage 三个字段，
-        # 84 × 3 个数字 ≈ 3KB，5 秒轮询也扛得住。
+        # 年历热力图：自然年（1-01 至今）的全部日聚合，口径与 recent 完全一致 ——
+        # 今天用 view 试算，历史日用已结算的日聚合。只下发 date / companion_sec 两个字段，
+        # 且**只发有记录的日子**（daily_v1 没有 key 的那天就是「还没开始记录」，前端压淡）。
+        # 短键 d/s：满打满算 365 天 ≈ 9KB，本地 IPC 每 5 秒一次没有压力。
+        # 不下发 coverage —— 月历格子里显示不下覆盖率，前端也用不到。
+        _yyyy = today_key[:4]
         calendar = []
-        for day_key in day_keys[-84:]:
+        for day_key in day_keys:
+            if not day_key.startswith(_yyyy):
+                continue
             shown = view if day_key == today_key else self._daily[day_key]
             calendar.append(
                 {
-                    "date": day_key,
-                    "companion_sec": round(shown.companion_sec),
-                    "coverage": round(shown.covered_ratio, 2),
+                    "d": day_key,
+                    "s": round(shown.companion_sec),
                 }
             )
 

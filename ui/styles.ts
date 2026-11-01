@@ -44,28 +44,28 @@ export const PANEL_CSS = `
 
 .np-block { margin-top: 16px; }
 
-/* 热力图：左侧星期栏 18px，每格 13px + 3px 间距 = 16px 步长，
-   顶栏月份标签按列数算宽度，保证与格子左边缘严格对齐。 */
-.np-heat-wrap { margin-top: 6px; }
-.np-heat-head { display: flex; height: 13px; margin-bottom: 4px; }
-.np-heat-gutter { width: 18px; flex: 0 0 18px; }
-.np-heat-mlbl { font-size: 10px; color: #8b95a8; white-space: nowrap;
-  overflow: hidden; line-height: 13px; }
-.np-heat-main { display: flex; }
-.np-heat-dow { width: 18px; flex: 0 0 18px; font-size: 9.5px; color: #a3acbd; }
-.np-heat-dow span { display: block; height: 13px; margin-bottom: 3px;
-  line-height: 13px; }
-.np-heat { display: flex; }
-.np-heat-col { display: flex; flex-direction: column; }
-.np-heat-cell { width: 13px; height: 13px; margin: 0 3px 3px 0; border-radius: 3px;
-  background: #eceff5; box-sizing: border-box; }
-.np-heat-void { background: transparent; }
-.np-heat-nodata { background: #f6f8fb; }
-.np-heat-cell.np-heat-today { outline: 1.5px solid #2f56e0; outline-offset: 1px; }
-.np-heat-cell:hover { box-shadow: 0 0 0 2px rgba(47, 86, 224, 0.22); }
-.np-heat-legend { display: flex; align-items: center; margin-top: 6px;
+/* 年历热力图：一个月一块月历，列 = 周一..周日，行 = 周。
+   月块固定 127px（7 格 × 18px 步长），外层 flex-wrap ——
+   面板窄时自动掉成 2 列，不会把格子挤成一条线。
+   行用独立 div 铺，不靠 flex-wrap，避免第 7 格因浮点误差换行。 */
+.np-cal { display: flex; flex-wrap: wrap; margin-top: 2px; }
+.np-cal-sub { font-size: 10.5px; color: #8b95a8; margin-bottom: 8px; }
+.np-cal-month { width: 127px; margin: 0 10px 14px 0; }
+.np-cal-title { font-size: 11px; font-weight: 600; color: #5b6577; margin-bottom: 5px; }
+.np-cal-row { display: flex; }
+.np-cal-dow { font-size: 8.5px; color: #a3acbd; margin-bottom: 2px; }
+.np-cal-dow span { width: 18px; text-align: center; line-height: 12px; }
+.np-cal-cell { width: 17px; height: 17px; margin: 0 1px 1px 0; border-radius: 3px;
+  box-sizing: border-box; font-size: 8.5px; line-height: 17px; text-align: center;
+  background: #f6f8fb; }
+.np-cal-void { background: transparent; }
+.np-cal-cell.np-cal-today { outline: 1.5px solid #2f56e0; outline-offset: 1px; }
+.np-cal-cell:hover { box-shadow: 0 0 0 2px rgba(47, 86, 224, 0.22); }
+
+.np-heat-legend { display: flex; align-items: center; margin-top: 2px;
   font-size: 10.5px; color: #9aa4b6; }
-.np-heat-legend .np-heat-cell { margin: 0 3px 0 0; width: 12px; height: 12px; }
+.np-heat-legend .np-heat-cell { width: 12px; height: 12px; margin: 0 3px 0 0;
+  border-radius: 3px; }
 .np-heat-lbl { margin: 0 5px 0 6px; }
 
 .np-foot { margin-top: 14px; font-size: 10.5px; color: #9aa4b6; line-height: 1.75; }
