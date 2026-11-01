@@ -50,13 +50,23 @@ export const PANEL_CSS = `
    行用独立 div 铺，不靠 flex-wrap，避免第 7 格因浮点误差换行。 */
 .np-cal { display: flex; flex-wrap: wrap; margin-top: 2px; }
 .np-cal-sub { font-size: 10.5px; color: #8b95a8; margin-bottom: 8px; }
-.np-cal-month { width: 127px; margin: 0 10px 14px 0; }
+/* 翻页条：按月翻，左右边界分别是初识月和本月 */
+.np-cal-nav { display: flex; align-items: center; margin-bottom: 8px; }
+.np-cal-btn { width: 22px; height: 22px; padding: 0; border-radius: 6px;
+  border: 1px solid #e2e7f0; background: #ffffff; color: #5b6577;
+  font-size: 14px; line-height: 20px; text-align: center; cursor: pointer; }
+.np-cal-btn:hover { background: #f2f5fb; border-color: #cfd8e6; }
+.np-cal-btn-off, .np-cal-btn-off:hover { color: #c6cedd; border-color: #eaeef5;
+  background: #ffffff; cursor: default; }
+.np-cal-navlbl { font-size: 12px; font-weight: 600; color: #3c465c;
+  margin: 0 10px; min-width: 84px; text-align: center; }
+.np-cal-month { width: 147px; margin: 0 10px 12px 0; }
 .np-cal-title { font-size: 11px; font-weight: 600; color: #5b6577; margin-bottom: 5px; }
 .np-cal-row { display: flex; }
 .np-cal-dow { font-size: 8.5px; color: #a3acbd; margin-bottom: 2px; }
-.np-cal-dow span { width: 18px; text-align: center; line-height: 12px; }
-.np-cal-cell { width: 17px; height: 17px; margin: 0 1px 1px 0; border-radius: 3px;
-  box-sizing: border-box; font-size: 8.5px; line-height: 17px; text-align: center;
+.np-cal-dow span { width: 21px; text-align: center; line-height: 13px; }
+.np-cal-cell { width: 20px; height: 20px; margin: 0 1px 1px 0; border-radius: 4px;
+  box-sizing: border-box; font-size: 9.5px; line-height: 20px; text-align: center;
   background: #f6f8fb; }
 .np-cal-void { background: transparent; }
 .np-cal-cell.np-cal-today { outline: 1.5px solid #2f56e0; outline-offset: 1px; }

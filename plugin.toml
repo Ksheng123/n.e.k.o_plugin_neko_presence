@@ -17,7 +17,7 @@ keywords = [
     "跨端", "适配", "companion", "presence", "schedule", "time", "quiet",
     "record", "cross-platform", "記録", "기록", "время", "tiempo",
 ]
-version = "0.5.0"
+version = "0.6.0"
 id = "neko_presence"
 type = "plugin"
 entry = "plugin.plugins.neko_presence:NekoPresencePlugin"

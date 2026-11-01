@@ -1,4 +1,4 @@
-"""她的一天 (neko_presence) —— V0.5.0：在场判定 + 跨端适配 + 年历热力图
+"""她的一天 (neko_presence) —— V0.6.0：在场判定 + 跨端适配 + 按月翻页年历
 
 同时跑两条链路：
 
@@ -70,7 +70,15 @@ _STORE_SEG_INDEX = "seg_index"
 _SEG_PREFIX = "seg:"
 
 #: 与 plugin.toml 的 version 保持一致（启动日志里打出来，方便确认装载的是哪一版）
-_VERSION = "0.5.0"
+_VERSION = "0.6.0"
+
+#: 初识日 —— 年历左翻的边界，不是本插件的第一条记录。
+#: 来源：宿主记忆库 memory/YUI/persona.json → __meta__.facts[0].migrated_at
+#:       = 2026-06-19T20:46:31，与宿主首次安装时各资源目录（live2d / character_cards）
+#:       的创建时间一致；memory/YUI/events.ndjson 最早事件也在 2026-06-19T21:28。
+#: 注意：forever_companion 的 first_seen（2026-10-29）是它自己的初装时间，不是初识。
+#: settings.since_date 可覆盖；若实际记录早于它，取更早的那个。
+_SINCE_DEFAULT = "2026-06-19"
 
 # 采样写入失败的提示节流（秒）：避免存储坏掉时每拍一条日志
 _ERR_LOG_GAP_SEC = 300.0
@@ -935,9 +943,16 @@ class NekoPresencePlugin(NekoPluginBase):
                 }
             )
 
+        # 年历左翻的下界：初识日（见 _SINCE_DEFAULT），而不是本插件第一条记录。
+        # 早于记录期的那几个月会显示成空月历 —— 那是「她还没开始数」，不是「没陪过」。
+        since = str(self._settings.get("since_date") or _SINCE_DEFAULT)
+        if day_keys and day_keys[0] < since:
+            since = day_keys[0]
+
         return {
             "version": _VERSION,
             "paused": self._paused(),
+            "since": since,
             "today": today,
             "timeline": timeline,
             "current": {

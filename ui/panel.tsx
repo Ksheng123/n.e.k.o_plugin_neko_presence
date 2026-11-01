@@ -27,6 +27,9 @@ export default function Panel(props: any) {
   // 宿主的 dashboard 轮询**只在面板聚焦时跑**，切走就停 —— 所以面板自己按
   // 5 秒间隔调 presence_snapshot 拉同一个快照，切回来也不用等宿主那一拍。
   const [snap, setSnap] = useState<any>(null)
+  // 年历按月翻页：偏移量相对「本月」，0 = 本月，-1 = 上月。
+  // 用偏移而不是绝对月份，这样跨月/跨年时「本月」永远跟着系统时钟走。
+  const [monthOffset, setMonthOffset] = useState(0)
 
   useEffect(() => {
     let alive = true
@@ -67,25 +70,24 @@ export default function Panel(props: any) {
   const timeline: any[] = Array.isArray(st.timeline) ? st.timeline : []
   const recent: any[] = Array.isArray(st.recent) ? st.recent : []
   const calendar: any[] = Array.isArray(st.calendar) ? st.calendar : []
-  // 年历热力图：一月一块月历，每块 7 列（周一..周日）× 最多 6 行。
-  // 布局在渲染前一次算好，不用 IIFE —— 宿主的 hosted-tsx 编译器未必支持。
   const now = new Date()
   const todayKey = ymd(now)
-  const yearGrid = buildYear(calendar, now)
-  const yearLabel = now.getFullYear() + " 年"
-  // 年度总览：只数「有记录且陪过」的天，和面板其它地方一样不与覆盖率混算。
-  let yearDays = 0
-  let yearTotal = 0
-  for (const mo of yearGrid) {
-    for (const row of mo.rows) {
-      for (const c of row) {
-        if (c && c.no_data !== true && c.sec > 0) {
-          yearDays += 1
-          yearTotal += c.sec
-        }
-      }
-    }
-  }
+  // 左边界 = 初识月（后端 since），右边界 = 本月，翻不出去。
+  // 初识日不是本插件第一条记录：6-19 就认识了，10-25 才开始数。
+  const sinceStr =
+    typeof st.since === "string" && st.since.length >= 7 ? st.since : todayKey
+  const curIdx = now.getFullYear() * 12 + now.getMonth()
+  const minIdx =
+    Number(sinceStr.slice(0, 4)) * 12 + (Number(sinceStr.slice(5, 7)) - 1)
+  let shownIdx = curIdx + monthOffset
+  if (shownIdx > curIdx) shownIdx = curIdx
+  if (shownIdx < minIdx) shownIdx = minIdx
+  const shownY = Math.floor(shownIdx / 12)
+  const shownM = shownIdx % 12
+  const atMin = shownIdx <= minIdx
+  const atMax = shownIdx >= curIdx
+  // 单月月历在渲染前算好，不用 IIFE —— 宿主的 hosted-tsx 编译器未必支持。
+  const monthView = buildMonth(calendar, shownY, shownM, now)
   const cur = st.current || {}
   const paused = st.paused === true
 
@@ -207,58 +209,76 @@ export default function Panel(props: any) {
         </div>
       ) : null}
 
-      {yearGrid.length > 0 ? (
+      {calendar.length > 0 ? (
         <div className="np-block">
-          <Card title={yearLabel}>
-            {yearDays > 0 ? (
-              <div className="np-cal-sub">
-                今年有 {yearDays} 天记下了你的在场，累计 {dur(yearTotal)}
-              </div>
-            ) : null}
+          <Card title="这些天">
+            <div className="np-cal-nav">
+              <button
+                className={"np-cal-btn" + (atMin ? " np-cal-btn-off" : "")}
+                onClick={() => {
+                  if (!atMin) setMonthOffset(monthOffset - 1)
+                }}
+              >
+                ‹
+              </button>
+              <span className="np-cal-navlbl">
+                {shownY} 年 {shownM + 1} 月
+              </span>
+              <button
+                className={"np-cal-btn" + (atMax ? " np-cal-btn-off" : "")}
+                onClick={() => {
+                  if (!atMax) setMonthOffset(monthOffset + 1)
+                }}
+              >
+                ›
+              </button>
+            </div>
+            <div className="np-cal-sub">
+              {monthView.days > 0
+                ? `这个月有 ${monthView.days} 天记下了你在，累计 ${dur(monthView.total)}`
+                : "这个月还没有记录"}
+            </div>
             <div className="np-cal">
-              {yearGrid.map((mo: any) => (
-                <div className="np-cal-month" key={mo.month}>
-                  <div className="np-cal-title">{mo.month} 月</div>
-                  <div className="np-cal-row np-cal-dow">
-                    {["一", "二", "三", "四", "五", "六", "日"].map(
-                      (w: string, wi: number) => (
-                        <span key={wi}>{w}</span>
+              <div className="np-cal-month">
+                <div className="np-cal-row np-cal-dow">
+                  {["一", "二", "三", "四", "五", "六", "日"].map(
+                    (w: string, wi: number) => (
+                      <span key={wi}>{w}</span>
+                    )
+                  )}
+                </div>
+                {monthView.rows.map((row: any[], ri: number) => (
+                  <div className="np-cal-row" key={ri}>
+                    {row.map((d: any, ci: number) =>
+                      d ? (
+                        <div
+                          className={
+                            "np-cal-cell" +
+                            (d.date === todayKey ? " np-cal-today" : "") +
+                            (d.no_data ? " np-cal-nodata" : "")
+                          }
+                          key={ci}
+                          title={`${d.date} · ${
+                            d.no_data
+                              ? "那时她还没开始数"
+                              : d.sec > 0
+                              ? dur(d.sec)
+                              : "没有记录"
+                          }`}
+                          style={{
+                            background: d.no_data ? "#f6f8fb" : heatColor(d.sec),
+                            color: d.no_data ? "#bfc7d5" : heatText(d.sec),
+                          }}
+                        >
+                          {d.day}
+                        </div>
+                      ) : (
+                        <div className="np-cal-cell np-cal-void" key={ci} />
                       )
                     )}
                   </div>
-                  {mo.rows.map((row: any[], ri: number) => (
-                    <div className="np-cal-row" key={ri}>
-                      {row.map((d: any, ci: number) =>
-                        d ? (
-                          <div
-                            className={
-                              "np-cal-cell" +
-                              (d.date === todayKey ? " np-cal-today" : "") +
-                              (d.no_data ? " np-cal-nodata" : "")
-                            }
-                            key={ci}
-                            title={`${d.date} · ${
-                              d.no_data
-                                ? "那时还没开始记录"
-                                : d.sec > 0
-                                ? dur(d.sec)
-                                : "没有记录"
-                            }`}
-                            style={{
-                              background: d.no_data ? "#f6f8fb" : heatColor(d.sec),
-                              color: d.no_data ? "#bfc7d5" : heatText(d.sec),
-                            }}
-                          >
-                            {d.day}
-                          </div>
-                        ) : (
-                          <div className="np-cal-cell np-cal-void" key={ci} />
-                        )
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
             <div className="np-heat-legend">
               <span className="np-heat-lbl">没有记录</span>
@@ -273,7 +293,9 @@ export default function Panel(props: any) {
               <span className="np-heat-cell" style={{ background: heatColor(25200) }} />
               <span className="np-heat-lbl">多</span>
             </div>
-            <div className="np-note">每一格是一天，数字是日期；颜色越深，她陪你越久。</div>
+            <div className="np-note">
+              每一格是一天，数字是日期；颜色越深，她陪你越久。
+            </div>
           </Card>
         </div>
       ) : null}
@@ -387,49 +409,45 @@ function coverageNote(span: number, coverage: number, wait: number, segs: number
   return parts.join(" · ")
 }
 
-// 年历热力图：一个月一块月历，列 = 周一..周日，行 = 周。
-// 每块返回 rows（7 个一组），渲染时按行铺 —— 不用 flex-wrap，
-// 因为 7 格 × 18px 正好贴住容器宽度，浮点误差会让第 7 格掉到下一行。
-// 未来日期给 null（透明占位），和「还没开始记录」严格分开。
+// 单月月历：列 = 周一..周日，行 = 周，每行 7 格单独一个 div。
+// 不用 flex-wrap —— 7 格 × 18px 正好贴住容器宽度，浮点误差会让第 7 格掉到下一行。
+// 未来日期给 null（透明占位），和「那时她还没开始数」严格分开。
 // 注意 hosted-tsx 不支持 SVG，这里全靠 div + CSS，别改回 <svg>。
-function buildYear(cal: any[], now: Date): any[] {
+function buildMonth(cal: any[], year: number, month0: number, now: Date): any {
   const map: Record<string, any> = {}
   for (const row of cal) map[String(row.d)] = row
 
-  const year = now.getFullYear()
-  const today = new Date(year, now.getMonth(), now.getDate())
-  const out: any[] = []
+  const days = new Date(year, month0 + 1, 0).getDate() // 当月天数
+  const lead = (new Date(year, month0, 1).getDay() + 6) % 7 // 周一开头，前面空几格
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
-  for (let m = 0; m < 12; m++) {
-    if (m > now.getMonth()) break // 今年还没到的月份不画
-    const first = new Date(year, m, 1)
-    const days = new Date(year, m + 1, 0).getDate() // 当月天数
-    const lead = (first.getDay() + 6) % 7 // 周一开头，前面空几格
-
-    const cells: any[] = []
-    for (let i = 0; i < lead; i++) cells.push(null)
-    for (let d = 1; d <= days; d++) {
-      const key = year + "-" + pad2(m + 1) + "-" + pad2(d)
-      if (new Date(year, m, d).getTime() > today.getTime()) {
-        cells.push(null)
-        continue
-      }
-      const rec = map[key]
-      // calendar 里没有这一天 = 那天插件还没开始记录，不是「陪着但 0 分钟」。
-      // 两者语义不同，视觉上也压淡，否则前期一大片灰会把真数据淹没。
-      cells.push(
-        rec
-          ? { date: key, day: d, sec: num(rec.s), no_data: false }
-          : { date: key, day: d, sec: 0, no_data: true }
-      )
+  const cells: any[] = []
+  for (let i = 0; i < lead; i++) cells.push(null)
+  let days_with = 0
+  let total = 0
+  for (let d = 1; d <= days; d++) {
+    const key = year + "-" + pad2(month0 + 1) + "-" + pad2(d)
+    if (new Date(year, month0, d).getTime() > today.getTime()) {
+      cells.push(null)
+      continue
     }
-    while (cells.length % 7 !== 0) cells.push(null) // 补齐整周
-
-    const rows: any[][] = []
-    for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7))
-    out.push({ month: m + 1, rows: rows })
+    const rec = map[key]
+    if (rec) {
+      const sec = num(rec.s)
+      days_with += 1
+      total += sec
+      cells.push({ date: key, day: d, sec: sec, no_data: false })
+    } else {
+      // calendar 里没有这一天 = 那天插件还没开始记录，不是「陪着但 0 分钟」。
+      // 两者语义不同，视觉上也压淡，否则空月份会把真数据淹没。
+      cells.push({ date: key, day: d, sec: 0, no_data: true })
+    }
   }
-  return out
+  while (cells.length % 7 !== 0) cells.push(null) // 补齐整周
+
+  const rows: any[][] = []
+  for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7))
+  return { rows: rows, days: days_with, total: total }
 }
 
 function pad2(n: number): string {
