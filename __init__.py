@@ -61,7 +61,7 @@ from .core.hostmem import months_ago
 from .core.hostmem import probe_since
 from .core.judge import Config as JudgeConfig
 from .core.judge import Sample
-from .core.state import DayStat, Segment, apply_segment, roll_segment, step
+from .core.state import DayStat, Segment, apply_segment, onset_is_late, roll_segment, step
 
 _INDEX_KEY = "probe_index"
 _CHUNK_PREFIX = "probe:"
@@ -1159,23 +1159,44 @@ class NekoPresencePlugin(NekoPluginBase):
         coverage = float(view.covered_ratio)
 
         lead = "今天到现在" if is_today else f"{day} 那天"
+
+        first = self._clock(view.first_seen)
+        last = self._clock(view.last_seen)
+
+        # 「记录从几点开始」≠「她几点才来」。2026-11-01 真机：插件 10:57 才启动，
+        # companion_sec 只有 1h45m，YUI 照读成「今天只陪了你 1 小时 45 分」——
+        # 用户以为她上午不在，实际是那之前根本没在记。
+        caveat = ""
+        if first and onset_is_late(view.first_seen, self._day_start(float(view.first_seen))):
+            caveat = (
+                f"{'今天' if is_today else '那天'}的记录是从 {first} 开始的，"
+                "在那之前没有记录 —— 那是空白，不是她不在。"
+            )
+
         if span <= 0 and companion <= 0 and count <= 0:
             spoken = f"{lead}还没有记录。"
         else:
-            parts = [f"{lead}，她陪了你 {_fmt_dur(companion)}"]
+            head = f"{lead}，她陪了你 {_fmt_dur(companion)}"
+            if caveat:
+                head += f"（从 {first} 开始记的）"
+            parts = [head]
             if count > 0:
                 parts.append(f"你安静过 {count} 次，最长 {_fmt_dur(longest)}")
             else:
                 parts.append("你还没有安静过")
             spoken = "；".join(parts) + "。"
 
-        first = self._clock(view.first_seen)
-        last = self._clock(view.last_seen)
         if first:
-            spoken += f"她{'今天' if is_today else '那天'} {first} 见到你"
-            if last and last != first:
-                spoken += f"，最后一次见到你是 {last}"
-            spoken += "。"
+            who = "今天" if is_today else "那天"
+            if caveat and last and last != first:
+                # 起点「从 10:57 开始记」上面已经说过，这里只补最后一次，
+                # 否则同一个时刻会在两句话里各出现一遍
+                spoken += f"她{who}最后一次见到你是 {last}。"
+            else:
+                spoken += f"她{who} {first} 见到你"
+                if last and last != first:
+                    spoken += f"，最后一次见到你是 {last}"
+                spoken += "。"
 
         # 与面板 coverageNote() 同一条分界线：覆盖率百分比四舍五入后 < 95 才提示
         pct = int(coverage * 100 + 0.5)
@@ -1197,10 +1218,15 @@ class NekoPresencePlugin(NekoPluginBase):
             "coverage": round(coverage, 3),
             "first_seen_clock": first,
             "last_seen_clock": last,
+            "window": f"{first} – {last}" if first and last and last != first else (first or ""),
+            "caveat": caveat,
             "paused": self._paused(),
             "guidance": (
                 "回答『陪了我多久』只用 companion_sec；covered_sec 是采样覆盖时长，"
                 "waiting 是另一本账，三者不能相加。"
+                "caveat 非空时必须把『记录从几点开始』一并说出，"
+                "禁止把 companion_sec 说成『今天只陪了这么久』——"
+                "窗口之前是没在记录，不是她不在。"
             ),
         }
 

@@ -28,7 +28,14 @@ from core.judge import (  # noqa: E402
     Config,
     Sample,
 )
-from core.state import DayStat, Segment, apply_segment, roll_segment, step  # noqa: E402
+from core.state import (  # noqa: E402
+    DayStat,
+    Segment,
+    apply_segment,
+    onset_is_late,
+    roll_segment,
+    step,
+)
 
 CFG = Config()
 RESULTS: list[tuple[bool, str]] = []
@@ -383,6 +390,29 @@ def scenario_unknown() -> None:
     check(day.waiting_total_sec == 0, "unknown 不会被编成一次离开")
 
 
+def scenario_onset_caveat() -> None:
+    """「记录起点晚于零点」的判据。
+
+    这一条不是为了算对数字，而是为了**不让模型把空白说成不在**。
+    2026-11-01 真机：插件 10:57 启动，companion_sec 1h45m，
+    YUI 照读成「今天只陪了你 1 小时 45 分」。用户以为她上午不在。
+    """
+    d0 = 1_793_476_800.0  # 某天 00:00，只当基准用（不依赖时区）
+
+    check(not onset_is_late(d0 + 600, d0), "首见 00:10 不算晚（用户自己就是那时开机）")
+    check(not onset_is_late(d0 + 1800, d0), "首见 00:30 恰好不说（阈值取严格大于）")
+    check(onset_is_late(d0 + 1801, d0), "首见 00:30:01 算晚")
+    check(onset_is_late(d0 + 41_160, d0), "首见 11:26 算晚（11-01 真机就是这种）")
+    check(onset_is_late(d0 + 81_120, d0), "首见 22:32 算晚")
+    check(
+        onset_is_late(d0 + 41_160, d0, threshold=40_000),
+        "阈值可调：调到 40000 秒后同一时刻算晚",
+    )
+    check(not onset_is_late(0, d0), "没有首见时间时不猜")
+    check(not onset_is_late(d0 + 41_160, 0), "拿不到零点时不猜")
+    check(not onset_is_late(None, d0), "None 不抛异常")
+
+
 def main() -> int:
     for fn in (
         scenario_simple,
@@ -394,6 +424,7 @@ def main() -> int:
         scenario_no_double_count,
         scenario_roll_segment,
         scenario_unknown,
+        scenario_onset_caveat,
     ):
         print(f"\n--- {fn.__name__}")
         fn()
