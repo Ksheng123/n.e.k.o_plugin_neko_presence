@@ -397,7 +397,9 @@ summary 里紧跟数字补一句「（从 10:57 开始记的）」，`caveat` �
 <数据根>/.neko-plugin-installations/plugins/neko_presence/
 ```
 
-本机实测路径：`D:\nekomemory--YUI\N.E.K.O\.neko-plugin-installations\plugins\neko_presence\`
+Windows 上一般在 `<N.E.K.O 安装目录>\.neko-plugin-installations\plugins\neko_presence\`。
+注意**代码目录**和**数据目录**是两个地方：代码在上面这里，
+`data/store.db` 在 `<N.E.K.O 安装目录>\plugins\neko_presence\data\`。
 
 放好后重启 N.E.K.O，宿主会自动把它登记为 `channel:"manual"`，但**不会自动启动**——
 需要在 Plugin Manager 里手动点一次启动，之后 `auto_start` 生效。
