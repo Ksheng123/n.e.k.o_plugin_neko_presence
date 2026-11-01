@@ -57,8 +57,7 @@ from plugin.sdk.plugin import (
 
 from .core.adapters import build_adapter
 from .core.hostmem import date_of as _date_of
-from .core.hostmem import months_ago
-from .core.hostmem import probe_since
+from .core.hostmem import months_ago, probe_since
 from .core.judge import Config as JudgeConfig
 from .core.judge import Sample
 from .core.state import DayStat, Segment, apply_segment, onset_is_late, roll_segment, step
@@ -181,7 +180,11 @@ class NekoPresencePlugin(NekoPluginBase):
         try:
             from plugin.sdk.plugin import get_os_activity_snapshot
 
-            host_snapshot = lambda: get_os_activity_snapshot(self.plugin_id)  # noqa: B023
+            def _probe_host_snapshot() -> Any:
+                # 闭包绑定 self：SDK 要求按 plugin_id 取快照
+                return get_os_activity_snapshot(self.plugin_id)
+
+            host_snapshot = _probe_host_snapshot
         except Exception:  # noqa: BLE001 - 旧 SDK 没有这个接口就只用原生
             host_snapshot = None
         self._host_snapshot = host_snapshot

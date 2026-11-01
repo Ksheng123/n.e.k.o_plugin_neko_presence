@@ -19,8 +19,6 @@ try:
 except Exception:  # noqa: BLE001
     pass
 
-from tools.analyze_probe import decode, load_rows  # noqa: E402
-
 _WANT = {"daily_v1", "current_v1", "marks_v1", "settings", "probe_index"}
 
 
@@ -45,6 +43,11 @@ def span_of(d: dict) -> float:
 
 
 def main(argv: list[str]) -> int:
+    # 延迟导入：本脚本得先把插件根塞进 sys.path 才找得到 core/ 与 tools/，
+    # 而「设置 sys.path」本身是一句普通语句，模块级 import 排在它后面
+    # 就是 ruff 的 E402（CI 用 --ignore-noqa，压不住）。
+    from tools.analyze_probe import decode, load_rows
+
     if len(argv) < 2:
         print(__doc__)
         return 2

@@ -20,11 +20,9 @@ except Exception:  # noqa: BLE001
 from core.judge import (  # noqa: E402
     AWAY,
     AWAY_FULLSCREEN,
-    FULLSCREEN,
     INTERACTIVE,
     LOCKED,
     SHORT_BREAK,
-    UNKNOWN,
     Config,
     Sample,
 )
