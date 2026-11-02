@@ -30,6 +30,8 @@ from core.state import (  # noqa: E402
     DayStat,
     Segment,
     apply_segment,
+    live_moment,
+    moment_label,
     onset_is_late,
     roll_segment,
     step,
@@ -411,6 +413,86 @@ def scenario_onset_caveat() -> None:
     check(not onset_is_late(None, d0), "None 不抛异常")
 
 
+def scenario_moment() -> None:
+    """「此刻是什么时机」—— 倒扫时间轴算 gap / run，再归纳成标签。
+
+    这两个数决定她会不会在不该说话的时候开口。2026-11-02 群里的原话是
+    「主动搭话是有的，就是频率和内容还得调整」——频率问题的本质是时机问题。
+    """
+    on = "interactive"
+    off = "away"
+
+    # ---- live_moment：倒扫 ----
+    check(live_moment([]) == (0.0, 0.0), "空时间轴 → (0, 0)")
+    check(
+        live_moment([{"o": 0, "len": 7200, "s": on}]) == (0.0, 7200.0),
+        "一整天都在 → gap 0、run 全长",
+    )
+    check(
+        live_moment([{"o": 0, "len": 3600, "s": on}, {"o": 3600, "len": 600, "s": off}])
+        == (0.0, 0.0),
+        "末尾是长离开（10 分钟整）→ 当前不在场，gap/run 都是 0",
+    )
+    check(
+        live_moment(
+            [
+                {"o": 0, "len": 1800, "s": on},
+                {"o": 1800, "len": 5400, "s": off},
+                {"o": 7200, "len": 900, "s": on},
+            ]
+        )
+        == (5400.0, 900.0),
+        "on→off→on：gap 取那次离开、run 只算最后这段",
+    )
+    check(
+        live_moment(
+            [
+                {"o": 0, "len": 600, "s": on},
+                {"o": 600, "len": 300, "s": off},
+                {"o": 900, "len": 600, "s": on},
+                {"o": 1500, "len": 300, "s": off},
+                {"o": 1800, "len": 1200, "s": on},
+            ]
+        )
+        == (0.0, 3000.0),
+        "短离开（各 5 分钟）不打断，全部并入「这次坐了多久」",
+    )
+    check(
+        live_moment(
+            [
+                {"o": 0, "len": 1800, "s": on},
+                {"o": 1800, "len": 900, "s": off},
+                {"o": 2700, "len": 600, "s": on},
+            ]
+        )
+        == (900.0, 600.0),
+        "长离开（15 分钟）才算打断，run 只从它之后算",
+    )
+    check(
+        live_moment(
+            [{"o": 0, "len": 3600, "s": on}, {"o": 3600, "len": 300, "s": off}],
+            short_gap=120.0,
+        )
+        == (0.0, 0.0),
+        "阈值调小到 2 分钟后，末尾 5 分钟的离开也算离开",
+    )
+
+    # ---- moment_label：阈值与优先级 ----
+    check(moment_label(0, 0, 15) == "", "不在场 → 空串（没有时机可言）")
+    check(moment_label(3 * 86400, 3600, 15) == "久别", "三天没来 → 久别")
+    check(moment_label(2 * 86400, 3600, 15) == "久别", "整整两天 → 久别（含等号）")
+    check(moment_label(2 * 86400 - 1, 3600, 15) == "刚回来", "差一秒不到两天 → 刚回来")
+    check(moment_label(3600, 3600, 15) == "刚回来", "正好一小时 → 刚回来（含等号）")
+    check(moment_label(3599, 3600, 15) == "平常", "59 分 59 秒 → 还不算刚回来")
+    check(moment_label(600, 3600, 2) == "深夜", "凌晨两点 → 深夜")
+    check(moment_label(600, 3600, 5) == "平常", "五点整 → 不是深夜")
+    check(moment_label(600, 3 * 3600, 15) == "长坐", "连续三小时 → 长坐")
+    check(moment_label(600, 3 * 3600 - 1, 15) == "平常", "差一秒不满三小时 → 平常")
+    check(moment_label(3 * 86400, 3600, 2) == "久别", "久别优先于深夜")
+    check(moment_label("bad", 3600, 15) == "", "脏输入不抛异常")
+    check(moment_label(0, 3600, "bad") == "平常", "小时数非法时退化成平常")
+
+
 def main() -> int:
     for fn in (
         scenario_simple,
@@ -423,6 +505,7 @@ def main() -> int:
         scenario_roll_segment,
         scenario_unknown,
         scenario_onset_caveat,
+        scenario_moment,
     ):
         print(f"\n--- {fn.__name__}")
         fn()

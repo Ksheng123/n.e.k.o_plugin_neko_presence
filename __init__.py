@@ -1,4 +1,4 @@
-"""她的一天 (neko_presence) —— V0.7.0：在场判定 + 跨端适配 + 按月翻页年历 + 初识日探测
+"""她的一天 (neko_presence) —— V0.7.1：在场判定 + 跨端适配 + 按月翻页年历 + 初识日探测
 
 同时跑两条链路：
 
@@ -60,7 +60,16 @@ from .core.hostmem import date_of as _date_of
 from .core.hostmem import months_ago, probe_since
 from .core.judge import Config as JudgeConfig
 from .core.judge import Sample
-from .core.state import DayStat, Segment, apply_segment, onset_is_late, roll_segment, step
+from .core.state import (
+    DayStat,
+    Segment,
+    apply_segment,
+    live_moment,
+    moment_label,
+    onset_is_late,
+    roll_segment,
+    step,
+)
 
 _INDEX_KEY = "probe_index"
 _CHUNK_PREFIX = "probe:"
@@ -74,7 +83,7 @@ _STORE_SEG_INDEX = "seg_index"
 _SEG_PREFIX = "seg:"
 
 #: 与 plugin.toml 的 version 保持一致（启动日志里打出来，方便确认装载的是哪一版）
-_VERSION = "0.7.0"
+_VERSION = "0.7.1"
 
 #: 年历左翻的边界（初识日）探测结果。见 :meth:`_resolve_since` 与 core/hostmem.py。
 #: 注意：**不再硬编码日期**。写死一个日期意味着每个用户都会看到别人的纪念日。
@@ -1116,6 +1125,7 @@ class NekoPresencePlugin(NekoPluginBase):
             "『我昨天几点走的』时调用。"
             "用户重复问同一个问题也必须重新调用一次：这个数字每分钟都在长，"
             "上一轮回答里的数字已经不对了，不要复用。"
+            "准备主动开口（而不是应答）时也先调一次，看 moment 判断此刻合不合适。"
             "返回的 summary 已按面板口径写好，直接念，不要自行换算、猜测或加秒。"
             "口径：companion 才是「陪着你」的时长；span 是首尾跨度；"
             "安静次数是另一本账，三者不能相加。"
@@ -1164,6 +1174,45 @@ class NekoPresencePlugin(NekoPluginBase):
         coverage = float(view.covered_ratio)
 
         lead = "今天到现在" if is_today else f"{day} 那天"
+
+        # 「此刻是什么时机」—— 只对今天有意义，历史日期没有"此刻"。
+        # 从当天时间轴倒扫出两件事：最近一次离开多久、这次已经连续在场多久。
+        # 这是本插件在整条「互动真实感」链路里唯一不可替代的东西：
+        # 别人能写话术、能换模型，但只有我们知道用户此刻处在什么状态。
+        gap_sec = 0.0
+        moment = ""
+        if is_today:
+            day_start_ts = self._day_start(time.time())
+
+            def _off(ts: Any) -> int:
+                try:
+                    return max(0, min(86400, int(round(float(ts) - day_start_ts))))
+                except (TypeError, ValueError):
+                    return 0
+
+            segs: list = []
+            for item in self._segments.get(day) or []:
+                start_o = _off(item.get("t") or 0)
+                segs.append(
+                    {
+                        "o": start_o,
+                        "len": max(0, _off(item.get("e") or item.get("t") or 0) - start_o),
+                        "s": item.get("s"),
+                    }
+                )
+            cur = self._current
+            if cur.samples and self._day_key(cur.start_t) == day:
+                start_o = _off(cur.start_t)
+                segs.append(
+                    {
+                        "o": start_o,
+                        "len": max(0, _off(cur.last_t or cur.start_t) - start_o),
+                        "s": cur.state,
+                    }
+                )
+            gap_sec, run_sec = live_moment(segs)
+            now_hour = datetime.fromtimestamp(time.time(), self._tz()).hour
+            moment = moment_label(gap_sec, run_sec, now_hour)
 
         first = self._clock(view.first_seen)
         last = self._clock(view.last_seen)
@@ -1227,6 +1276,9 @@ class NekoPresencePlugin(NekoPluginBase):
             "first_seen_clock": first,
             "last_seen_clock": last,
             "window": f"{first} – {last}" if first and last and last != first else (first or ""),
+            # 「此刻值不值得开口」：久别 / 刚回来 / 深夜 / 长坐 / 平常，空串 = 不在场
+            "moment": moment,
+            "gap": _fmt_dur(gap_sec) if gap_sec > 0 else "",
             # 取数时刻。没有它，模型复读上一轮的数字时用户无从察觉
             # （2026-11-01 真机：连问两次，第一次报的是 6 分钟前的 3 小时 36 分）
             "as_of": self._clock(time.time()),
@@ -1242,6 +1294,10 @@ class NekoPresencePlugin(NekoPluginBase):
                 "窗口之前是没在记录，不是她不在。"
                 "as_of 是这次取数的时刻；用户追问「现在呢」时必须重新调用，"
                 "不要拿上一轮的 as_of 和数字应付。"
+                "moment 是此刻的时机：久别 / 刚回来 / 深夜 / 长坐 / 平常。"
+                "空串表示用户不在场，这时不要主动开口。"
+                "moment 是平常就闭嘴 —— 别为了刷存在感硬找话说。"
+                "gap 是距上次离开多久，可以说「一个多小时前你还在」这类话。"
             ),
         }
 

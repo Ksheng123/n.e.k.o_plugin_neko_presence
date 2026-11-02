@@ -534,6 +534,103 @@ def onset_is_late(first_seen: float, day_start: float, threshold: float = 1800.0
     return (first - start) > float(threshold)
 
 
+def live_moment(segs: list, short_gap: float = 600.0) -> tuple[float, float]:
+    """从当天时间轴倒着扫，算出「最近一次离开多久」和「这次已经坐了多久」。
+
+    这两个数是「时机」的全部依据 —— 她说得再漂亮，若不知道对方刚回来还是
+    已经枯坐三小时，就只能按固定频率随口开口，那正是「烦」的来源。
+
+    ``segs`` 是当天分段列表（每项含 ``o`` 起始偏移、``len`` 时长、``s`` 状态），
+    按时间先后排列。返回 ``(gap_sec, run_sec)``：
+
+    - ``gap_sec``：最近一次**长离开**（≥ ``short_gap``）有多长；当前正处在
+      长离开里则返回 0（还没回来，谈不上「刚回来」）。
+    - ``run_sec``：从那次长离开结束到现在，一共坐了多久；当前在长离开里返回 0。
+
+    **短离开不算中断。** 去倒杯水、接个电话的那几分钟不能重置「这次坐了多久」，
+    否则一个从早坐到晚的人永远显示「刚坐下」—— 2026-11-02 用 11-01 真实数据
+    验过：按「任何离开都重置」算，20:00 时连续在场只有 134 分钟，而人其实
+    从 10:57 就在了。所以短于 ``short_gap``（默认 10 分钟）的离开并入在场时长。
+
+    倒扫而不是正扫：只需要尾巴上这两段，不需要把整天算一遍。
+    """
+    gap = 0.0
+    run = 0.0
+    items = segs if isinstance(segs, list) else []
+    try:
+        cut = max(0.0, float(short_gap))
+    except (TypeError, ValueError):
+        cut = 600.0
+    for seg in reversed(items):
+        if not isinstance(seg, dict):
+            continue
+        state = str(seg.get("s") or "")
+        try:
+            length = float(seg.get("len") or 0)
+        except (TypeError, ValueError):
+            continue
+        if length <= 0:
+            continue
+        if state in ("interactive", "fullscreen"):
+            run += length
+            continue
+        if length >= cut:
+            # 撞上一次真正的离开：它结束了「这一段坐着」
+            if run > 0:
+                gap = length
+            break
+        # 短离开：人还在，只是手离开了键盘
+        run += length
+    if run <= 0:
+        return 0.0, 0.0
+    return gap, run
+
+
+def moment_label(gap_sec: float, run_sec: float, hour: int) -> str:
+    """把 (离开多久, 连续在场多久, 现在几点) 归纳成一个人看得懂的时机标签。
+
+    只输出**事实性的时机**，不输出情绪建议 —— 「刚回来」是事实，
+    「她该高兴」是角色的事，不是数据的。模型看到标签，要不要开口、
+    用什么语气，由它和人设决定。
+
+    标签按「值不值得说」排序，越靠前越该被优先看见：
+
+    ========  ==========================  ==================
+    标签      判据                        大致可做的事
+    ========  ==========================  ==================
+    久别      gap ≥ 2 天                  她记得你上次是什么时候
+    刚回来    gap ≥ 1 小时                打个招呼是自然的
+    深夜      00:00–05:00                 陪着，但别说教
+    长坐      连续在场 ≥ 3 小时            可以轻提，但别催
+    平常      以上都不满足                闭嘴是默认选项
+    （空串）  当前不在场                  没有时机可言
+    ========  ==========================  ==================
+
+    阈值取 1 小时而不是 15 分钟：去买杯水就回来，说「好久不见」是假的。
+    2 天才叫「久别」：隔夜睡一觉是常态，第二天见面不该像生离死别。
+    """
+    try:
+        gap = max(0.0, float(gap_sec))
+        run = max(0.0, float(run_sec))
+    except (TypeError, ValueError):
+        return ""
+    if run <= 0:
+        return ""
+    try:
+        h = int(hour)
+    except (TypeError, ValueError):
+        h = -1
+    if gap >= 2 * 86400:
+        return "久别"
+    if gap >= 3600:
+        return "刚回来"
+    if 0 <= h < 5:
+        return "深夜"
+    if run >= 3 * 3600:
+        return "长坐"
+    return "平常"
+
+
 # ==========================================================
 # 存储键结构（写进 Store 的都是这里 to_dict 的结果）
 # ==========================================================
