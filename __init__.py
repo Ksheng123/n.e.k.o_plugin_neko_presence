@@ -66,6 +66,7 @@ from .core.state import (
     apply_segment,
     live_moment,
     moment_label,
+    moment_level,
     onset_is_late,
     roll_segment,
     step,
@@ -1180,7 +1181,9 @@ class NekoPresencePlugin(NekoPluginBase):
         # 这是本插件在整条「互动真实感」链路里唯一不可替代的东西：
         # 别人能写话术、能换模型，但只有我们知道用户此刻处在什么状态。
         gap_sec = 0.0
+        run_sec = 0.0
         moment = ""
+        level = ""
         if is_today:
             day_start_ts = self._day_start(time.time())
 
@@ -1226,6 +1229,7 @@ class NekoPresencePlugin(NekoPluginBase):
                         gap_sec = away
             now_hour = datetime.fromtimestamp(time.time(), self._tz()).hour
             moment = moment_label(gap_sec, run_sec, now_hour)
+            level = moment_level(moment, gap_sec, run_sec, now_hour)
 
         first = self._clock(view.first_seen)
         last = self._clock(view.last_seen)
@@ -1291,6 +1295,10 @@ class NekoPresencePlugin(NekoPluginBase):
             "window": f"{first} – {last}" if first and last and last != first else (first or ""),
             # 「此刻值不值得开口」：久别 / 刚回来 / 深夜 / 长坐 / 平常，空串 = 不在场
             "moment": moment,
+            # 程度：长坐分三档（3–5 / 5–8 / 8+），久别与深夜各分档；其余为空
+            "level": level,
+            # 这次已经坐了多久、上次离开多久 —— 标签只说"长坐"，坐多久得给数
+            "sit": _fmt_dur(run_sec) if run_sec > 0 else "",
             "gap": _fmt_dur(gap_sec) if gap_sec > 0 else "",
             # 取数时刻。没有它，模型复读上一轮的数字时用户无从察觉
             # （2026-11-01 真机：连问两次，第一次报的是 6 分钟前的 3 小时 36 分）
@@ -1311,6 +1319,8 @@ class NekoPresencePlugin(NekoPluginBase):
                 "空串表示用户不在场，这时不要主动开口。"
                 "moment 是平常就闭嘴 —— 别为了刷存在感硬找话说。"
                 "gap 是距上次离开多久，可以说「一个多小时前你还在」这类话。"
+                "sit 是这次已经坐了多久、level 是它的程度档 —— 同样一句「长坐」，"
+                "坐三小时和坐九小时该说得不一样，用这两个字段分辨，别混用。"
             ),
         }
 

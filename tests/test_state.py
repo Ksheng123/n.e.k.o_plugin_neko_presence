@@ -32,6 +32,7 @@ from core.state import (  # noqa: E402
     apply_segment,
     live_moment,
     moment_label,
+    moment_level,
     onset_is_late,
     roll_segment,
     step,
@@ -491,6 +492,24 @@ def scenario_moment() -> None:
     check(moment_label(3 * 86400, 3600, 2) == "久别", "久别优先于深夜")
     check(moment_label("bad", 3600, 15) == "", "脏输入不抛异常")
     check(moment_label(0, 3600, "bad") == "平常", "小时数非法时退化成平常")
+
+    # ---- moment_level：程度分档 ----
+    day = 86400.0
+    hour = 3600.0
+    check(moment_level("久别", 3 * day, 3600, 15) == "两三天", "隔三天 → 两三天")
+    check(moment_level("久别", 7 * day, 3600, 15) == "一周多", "整整七天 → 一周多")
+    check(moment_level("久别", 14 * day, 3600, 15) == "半个多月", "十四天 → 半个多月")
+    check(moment_level("久别", 30 * day, 3600, 15) == "一个多月", "三十天 → 一个多月")
+    check(moment_level("长坐", 0, 3 * hour, 15) == "三到五小时", "刚满三小时 → 三到五")
+    check(moment_level("长坐", 0, 5 * hour, 15) == "五到八小时", "满五小时 → 五到八")
+    check(moment_level("长坐", 0, 8 * hour, 15) == "八小时以上", "满八小时 → 八小时以上")
+    check(moment_level("长坐", 0, 7.9 * hour, 15) == "五到八小时", "差一点八小时 → 五到八")
+    check(moment_level("深夜", 0, 3600, 0) == "零点后", "零点 → 零点后")
+    check(moment_level("深夜", 0, 3600, 3) == "快天亮了", "凌晨三点 → 快天亮了")
+    check(moment_level("刚回来", 7200, 600, 15) == "", "刚回来不分程度")
+    check(moment_level("平常", 0, 600, 15) == "", "平常不分程度")
+    check(moment_level("", 0, 0, 15) == "", "不在场不分程度")
+    check(moment_level("长坐", "bad", "bad", 15) == "", "秒数是脏值时返回空，不猜程度")
 
 
 def main() -> int:
