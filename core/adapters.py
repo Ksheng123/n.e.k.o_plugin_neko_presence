@@ -23,7 +23,8 @@
     screen      normal / locked / fullscreen / unknown，四态
     foreground  前台进程名（仅文件名，Windows 才有；其他平台留空）
     privacy     宿主隐私状态；不是 visible 时一律不描述用户行为
-    source      win32 / host_sdk / none，写进探针，方便回放时知道数据从哪来
+    source      win32 / linux_x11 / linux_logind / host_sdk / none，
+                写进探针，方便回放时知道数据从哪来
 
 注意：本模块**不 import ``plugin.sdk``**。宿主快照通过构造函数注入一个
 ``async`` 可调用对象，这样核心层仍然能脱离宿主单测。
@@ -32,11 +33,12 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
-from . import signals
+from . import platform_linux, signals
 from .signals import (
     QUNS_BUSY,
     QUNS_D3D_FULLSCREEN,
@@ -52,6 +54,10 @@ SCREEN_UNKNOWN = "unknown"        # 这一路信号拿不到屏幕状态
 
 # ---- 数据来源（写进探针 chunk 的 ``src`` 字段）----
 SOURCE_WIN32 = "win32"
+#: Linux 是前缀：实际写进探针的是 ``linux_x11`` / ``linux_logind`` / ``linux_none``。
+#: 为什么要带后缀 —— 同一台机器上「锁屏信号到底来自 XScreenSaver 还是 logind」
+#: 是排障时第一个要问的问题，让 ``src`` 自己回答比翻日志快。
+SOURCE_LINUX = "linux"
 SOURCE_HOST = "host_sdk"
 SOURCE_NONE = "none"
 
@@ -208,6 +214,95 @@ class Win32Adapter:
         )
 
 
+class LinuxAdapter:
+    """Linux 适配器：X11 走 XScreenSaver，Wayland 走 systemd-logind。
+
+    与 :class:`Win32Adapter` 同一套隐私纪律：**先问宿主隐私态，再决定读不读
+    本地信号**。顺序不能反 —— 反了就成了「先读了再假装没读」。
+
+    与 Windows 的两处差别，都来自 Linux 的现实，不是偷懒：
+
+    1. **没有全屏信号。** X11 的 ``SHQueryUserNotificationState`` 等价物不存在；
+       Wayland 更是从设计上就不让普通进程知道「前台是谁」。所以 ``screen``
+       只可能是 ``locked`` / ``normal`` / ``unknown``。「全屏看片」在 Linux 上
+       退化成「久不操作但没锁屏」→ 判 ``away``。宁可少认一次陪伴，也不编
+       一个全屏出来。
+    2. **空闲时长有两个来源，取较大值。** logind 的 ``IdleHint`` 依赖
+       compositor 主动上报，niri 这类不自报的会让它恒为 false（等价于
+       「刚动过」）；宿主快照的 ``system_idle_seconds`` 恰好能补上这个洞。
+       两者都是对同一个物理量（距最后一次输入多久）的独立估计，取较大值 =
+       偏向「人不在」，符合本项目「宁可少记陪伴，也不把不知道写成陪着你」
+       的口径。若你更信 logind，把 ``max`` 换成「有则用」即可，只改一行。
+    """
+
+    def __init__(
+        self,
+        host_snapshot: SnapshotCallable | None = None,
+        backend: "platform_linux.Backend | None" = None,
+    ) -> None:
+        self._host = host_snapshot
+        # 注入后端是为了可测试：单测里塞一个假后端，就不需要真的锁屏
+        self._backend = backend if backend is not None else platform_linux.pick_backend()
+
+    @property
+    def source(self) -> str:
+        """``linux_x11`` / ``linux_logind`` / ``linux_none``。"""
+        return f"{SOURCE_LINUX}_{self._backend.name}"
+
+    async def sample(self) -> Signal:
+        t = time.time()
+        m = time.monotonic()
+
+        privacy = "unavailable"
+        sdk_idle: float | None = None
+        category = ""
+        if self._host is not None:
+            snap = await _call_snapshot(self._host)
+            if snap is not None:
+                privacy, sdk_idle, category = _host_fields(snap)
+                if privacy == "private":
+                    # 宿主明确说「别观察」→ 连 logind / X11 都不问
+                    return Signal(
+                        t=t,
+                        m=m,
+                        privacy=privacy,
+                        source=self.source,
+                    )
+
+        probed = self._backend.read()
+
+        idle = probed.idle_sec
+        if idle is not None and sdk_idle is not None:
+            idle = max(idle, sdk_idle)
+        elif idle is None:
+            idle = sdk_idle
+
+        if probed.locked:
+            screen = SCREEN_LOCKED
+        elif probed.locked is False:
+            # 后端**明确回答**没锁 → normal，交给 judge 按空闲时长分级。
+            # 不能拿「有 idle」当作没锁的证据：宿主快照的空闲秒数只说明
+            # 「多久没动」，锁屏期间它照样在涨，据此判 normal 就是编造。
+            screen = SCREEN_NORMAL
+        else:
+            # 锁屏状态未知（或后端整体不可用）→ 不猜。
+            # 有 idle 时 judge 仍能判 interactive / away，只是永远不会判 locked。
+            screen = SCREEN_UNKNOWN
+
+        return Signal(
+            t=t,
+            m=m,
+            idle_sec=idle,
+            screen=screen,
+            foreground="",  # Linux 不取前台进程名：Wayland 拿不到，X11 也不该拿
+            privacy=privacy,
+            category=category,
+            sdk_idle=sdk_idle,
+            q=None,  # q 是 Windows 状态码，Linux 恒为 None
+            source=self.source,
+        )
+
+
 class HostSdkAdapter:
     """宿主快照适配器：给非 Windows 平台（或原生信号不可用）用。
 
@@ -242,14 +337,22 @@ class HostSdkAdapter:
 
 
 def build_adapter(host_snapshot: SnapshotCallable | None = None):
-    """按当前平台挑一个适配器。
+    """按当前平台挑一个适配器（工厂）。
 
     - Windows 且有 ctypes → :class:`Win32Adapter`（信息最全）
+    - Linux → :class:`LinuxAdapter`（X11 / Wayland 由 ``platform_linux`` 再分一层）
     - 其他平台且有宿主快照 → :class:`HostSdkAdapter`（降级但可用）
     - 都没有 → :class:`NullAdapter`（诚实地说「没有记录」）
+
+    新增平台只需要在这里加一行：上层 ``judge`` / ``state`` / ``__init__``
+    都不认识平台，也就都不需要改。
     """
     if os.name == "nt" and signals.has_ctypes():
         return Win32Adapter(host_snapshot)
+    if sys.platform.startswith("linux"):
+        # LinuxAdapter 内部已经处理了「后端全不可用」的情况（退到宿主快照或
+        # 返回不可用采样），所以这里不需要再判一次有没有后端
+        return LinuxAdapter(host_snapshot)
     if host_snapshot is not None:
         return HostSdkAdapter(host_snapshot)
     return NullAdapter()
