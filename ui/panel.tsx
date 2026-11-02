@@ -16,9 +16,8 @@ import { Card } from "@neko/plugin-ui"
 import { useEffect, useState } from "@neko/plugin-ui"
 import { PANEL_CSS } from "./styles"
 
+// 色块改用 CSS 类（.np-seg-on / .np-seg-off）画渐变，这里只留图例小方块要用的两个
 const C_ON = "#5b7cfa"
-const C_ON_SOFT = "#93a9fb"
-const C_OFF = "#c3cad8"
 const C_OFF_DEEP = "#8f9bb3"
 
 export default function Panel(props: any) {
@@ -90,6 +89,38 @@ export default function Panel(props: any) {
   const monthView = buildMonth(calendar, shownY, shownM, now)
   const cur = st.current || {}
   const paused = st.paused === true
+  // 在场的两种状态点亮状态灯；离开、锁屏、短暂离席、没有记录都不亮
+  const onNow = cur.state === "interactive" || cur.state === "fullscreen"
+  // 「现在」在 24 小时轴上的位置，画一根竖线，否则看不出色带哪头是"此刻"
+  const nowPct =
+    ((now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()) / 86400) * 100
+  // 「最近几天」画折线，不再画覆盖率条形 —— 条长画覆盖率、数字写陪伴时长，
+  // 两者对不上，会被读成「陪得久不久」。覆盖率只留在 tooltip 里。
+  // recent 已经是「旧 → 新」（列表展示时才 reverse 成最新在上），
+  // 折线要时间从左往右走，直接用原序，别再 reverse。
+  const series = recent.slice()
+  const nPt = series.length
+  let vmax = 1
+  let sumC = 0
+  let sumW = 0
+  for (let i = 0; i < nPt; i++) {
+    const v = num(series[i].companion_sec)
+    if (v > vmax) vmax = v
+    sumC += v
+    sumW += num(series[i].waiting_sec)
+  }
+  let topIdx = 0
+  for (let i = 0; i < nPt; i++) {
+    if (num(series[i].companion_sec) >= num(series[topIdx].companion_sec)) topIdx = i
+  }
+  const pts = series.map((d: any, i: number) => ({
+    x: nPt > 1 ? (i / (nPt - 1)) * 100 : 50,
+    y: 93 - (num(d.companion_sec) / vmax) * 86,
+  }))
+  // 面积多边形：从左上开始依次过每个点，再回到底边两角闭合
+  const areaPoly =
+    pts.map((p: any) => `${p.x.toFixed(2)}% ${p.y.toFixed(2)}%`).join(",") +
+    ",100% 100%,0% 100%"
 
   async function togglePause() {
     if (!api || typeof api.call !== "function") return
@@ -115,15 +146,21 @@ export default function Panel(props: any) {
       <style>{PANEL_CSS}</style>
 
       <div className="np-head">
-        <span className="np-title">她的一天</span>
-        {paused ? <span className="np-pill">已暂停记录</span> : null}
-        <span className="np-live">{stateWord(cur.state)}</span>
-        <button className="np-btn" onClick={() => togglePause()}>
-          {paused ? "恢复记录" : "暂停记录"}
-        </button>
+        <div className="np-title">
+          她的一天
+          {paused ? <span className="np-pill">已暂停记录</span> : null}
+        </div>
+        <div className="np-greet">{greet(num(today.first_seen))}</div>
+        <div className="np-bar">
+          <span className="np-live">
+            <span className={"np-dot" + (onNow ? " np-dot-on" : "")} />
+            {stateWord(cur.state)}
+          </span>
+          <button className="np-btn" onClick={() => togglePause()}>
+            {paused ? "恢复记录" : "暂停记录"}
+          </button>
+        </div>
       </div>
-
-      <div className="np-greet">{greet(num(today.first_seen))}</div>
 
       <div className="np-metrics">
         <div className="np-metric">
@@ -131,7 +168,7 @@ export default function Panel(props: any) {
           <div className="np-metric-value">{dur(companion)}</div>
           <div className="np-metric-sub">{span > 0 ? `跨度 ${dur(span)}` : ""}</div>
         </div>
-        <div className="np-metric">
+        <div className="np-metric np-metric-quiet">
           <div className="np-metric-label">你安静过</div>
           <div className="np-metric-value">{waitCount > 0 ? `${waitCount} 次` : "—"}</div>
           <div className="np-metric-sub">{waitCount > 0 ? `最长 ${dur(longest)}` : ""}</div>
@@ -146,16 +183,18 @@ export default function Panel(props: any) {
             return (
               <div
                 key={i}
-                className="np-seg"
+                className={"np-seg " + (m.kind === "on" ? "np-seg-on" : "np-seg-off")}
                 title={m.kind === "on" ? "在场" : "离开"}
                 style={{
                   left: `${left}%`,
                   width: `${Math.max(width, 0.12)}%`,
-                  background: m.kind === "on" ? C_ON : C_OFF_DEEP,
                 }}
               />
             )
           })}
+          <div className="np-now" style={{ left: `${nowPct}%` }}>
+            <span className="np-now-top" />
+          </div>
         </div>
         <div className="np-axis">
           <span>00</span>
@@ -182,29 +221,30 @@ export default function Panel(props: any) {
       </Card>
 
       {recent.length > 0 ? (
-        <div style={{ marginTop: 16 }}>
+        <div className="np-block">
           <Card title="最近几天">
-            {recent
-              .slice()
-              .reverse()
-              .map((d: any) => (
-                <div className="np-dayrow" key={String(d.date)}>
-                  <span className="np-day-date">{shortDate(d.date)}</span>
-                  <span className="np-day-bar">
-                    <span
-                      className="np-day-fill"
-                      style={{
-                        display: "block",
-                        width: `${Math.max(0, Math.min(100, num(d.coverage) * 100))}%`,
-                      }}
-                    />
-                  </span>
-                  <span className="np-day-num">{dur(num(d.companion_sec))}</span>
-                  <span className="np-day-num2">
-                    {num(d.waiting_sec) >= 60 ? dur(num(d.waiting_sec)) : "—"}
-                  </span>
-                </div>
+            <div className="np-chart">
+              <div className="np-area" style={{ clipPath: `polygon(${areaPoly})` }} />
+              {pts.map((p: any, i: number) => (
+                <span
+                  key={i}
+                  className={"np-pt" + (i === topIdx ? " np-pt-top" : "")}
+                  style={{ left: `${p.x}%`, top: `${p.y}%` }}
+                  title={`${series[i].date} · 陪了 ${dur(
+                    num(series[i].companion_sec)
+                  )} · 记录完整度 ${Math.round(num(series[i].coverage) * 100)}%`}
+                />
               ))}
+            </div>
+            <div className="np-xaxis">
+              {series.map((d: any, i: number) => (
+                <span key={i}>{shortDate(d.date)}</span>
+              ))}
+            </div>
+            <div className="np-chart-sum">
+              最近 {nPt} 天，她陪了你 {dur(sumC)}
+              {sumW >= 60 ? ` · 累计安静 ${dur(sumW)}` : ""}
+            </div>
           </Card>
         </div>
       ) : null}
