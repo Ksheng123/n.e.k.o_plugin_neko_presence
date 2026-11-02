@@ -1211,6 +1211,19 @@ class NekoPresencePlugin(NekoPluginBase):
                     }
                 )
             gap_sec, run_sec = live_moment(segs)
+            # 跨天补 gap：当天第一次出现时，今天的时间轴里根本没有「离开」段，
+            # 光看当天永远是 gap=0 → 永远「平常」。可「早上第一次打开」和
+            # 「隔三天回来」恰恰是最该被认出来的两个时机，所以这里用
+            # 「今天首条采样 − 上一个有记录那天的末条采样」补上这段空白。
+            if run_sec > 0 and gap_sec <= 0:
+                prev_days = sorted(k for k in self._daily if k < day)
+                if prev_days:
+                    try:
+                        away = float(view.first_seen) - float(self._daily[prev_days[-1]].last_seen or 0)
+                    except (TypeError, ValueError):
+                        away = 0.0
+                    if away > 0:
+                        gap_sec = away
             now_hour = datetime.fromtimestamp(time.time(), self._tz()).hour
             moment = moment_label(gap_sec, run_sec, now_hour)
 
